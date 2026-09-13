@@ -1,0 +1,159 @@
+#include <Arduino.h>
+
+// ==========================================
+// TB6612FNG Pin Definitions (LOLIN32 v1)
+// ==========================================
+#define PIN_STBY 4
+
+// Motor A (Left)
+#define PIN_PWMA 25
+#define PIN_AIN1 26
+#define PIN_AIN2 27
+
+// Motor B (Right)
+#define PIN_PWMB 14
+#define PIN_BIN1 12
+#define PIN_BIN2 13
+
+// LOLIN32 Built-in LED (GPIO 5, Active LOW)
+#ifndef LED_BUILTIN
+#define LED_BUILTIN 5
+#endif
+
+// PWM Configuration
+const int PWM_FREQ = 20000;    // 20 kHz
+const int PWM_RESOLUTION = 8;  // 8-bit (0 - 255)
+const int PWM_CH_LEFT = 0;
+const int PWM_CH_RIGHT = 1;
+
+// Motor Test Speed (0 - 255)
+const int TEST_SPEED = 180;
+
+void setLed(bool state) {
+  // Active-LOW logic for LOLIN32
+  digitalWrite(LED_BUILTIN, state ? LOW : HIGH);
+}
+
+void setLeftMotor(int speed, bool forward) {
+  if (speed == 0) {
+    digitalWrite(PIN_AIN1, LOW);
+    digitalWrite(PIN_AIN2, LOW);
+  } else if (forward) {
+    digitalWrite(PIN_AIN1, HIGH);
+    digitalWrite(PIN_AIN2, LOW);
+  } else {
+    digitalWrite(PIN_AIN1, LOW);
+    digitalWrite(PIN_AIN2, HIGH);
+  }
+  ledcWrite(PWM_CH_LEFT, speed);
+}
+
+void setRightMotor(int speed, bool forward) {
+  if (speed == 0) {
+    digitalWrite(PIN_BIN1, LOW);
+    digitalWrite(PIN_BIN2, LOW);
+  } else if (forward) {
+    digitalWrite(PIN_BIN1, HIGH);
+    digitalWrite(PIN_BIN2, LOW);
+  } else {
+    digitalWrite(PIN_BIN1, LOW);
+    digitalWrite(PIN_BIN2, HIGH);
+  }
+  ledcWrite(PWM_CH_RIGHT, speed);
+}
+
+void stopAllMotors() {
+  setLeftMotor(0, true);
+  setRightMotor(0, true);
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+
+  Serial.println("========================================");
+  Serial.println("   TB6612FNG Motor Driver Test Starting ");
+  Serial.println("========================================");
+
+  // Status LED
+  pinMode(LED_BUILTIN, OUTPUT);
+  setLed(false);
+
+  // Direction Pins
+  pinMode(PIN_AIN1, OUTPUT);
+  pinMode(PIN_AIN2, OUTPUT);
+  pinMode(PIN_BIN1, OUTPUT);
+  pinMode(PIN_BIN2, OUTPUT);
+
+  // Standby Pin
+  pinMode(PIN_STBY, OUTPUT);
+  digitalWrite(PIN_STBY, HIGH); // Enable driver
+
+  // Configure PWM Channels
+  ledcSetup(PWM_CH_LEFT, PWM_FREQ, PWM_RESOLUTION);
+  ledcAttachPin(PIN_PWMA, PWM_CH_LEFT);
+
+  ledcSetup(PWM_CH_RIGHT, PWM_FREQ, PWM_RESOLUTION);
+  ledcAttachPin(PIN_PWMB, PWM_CH_RIGHT);
+
+  stopAllMotors();
+  Serial.println("Motor driver initialized. Beginning test cycle in 2 seconds...");
+  delay(2000);
+}
+
+void loop() {
+  // Test 1: Left Motor Forward
+  Serial.println("[TEST 1/6] Left Motor: FORWARD");
+  setLed(true);
+  setLeftMotor(TEST_SPEED, true);
+  setRightMotor(0, true);
+  delay(2000);
+
+  // Test 2: Left Motor Reverse
+  Serial.println("[TEST 2/6] Left Motor: REVERSE");
+  setLeftMotor(TEST_SPEED, false);
+  setRightMotor(0, true);
+  delay(2000);
+
+  // Stop Left Motor
+  stopAllMotors();
+  setLed(false);
+  delay(1000);
+
+  // Test 3: Right Motor Forward
+  Serial.println("[TEST 3/6] Right Motor: FORWARD");
+  setLed(true);
+  setLeftMotor(0, true);
+  setRightMotor(TEST_SPEED, true);
+  delay(2000);
+
+  // Test 4: Right Motor Reverse
+  Serial.println("[TEST 4/6] Right Motor: REVERSE");
+  setLeftMotor(0, true);
+  setRightMotor(TEST_SPEED, false);
+  delay(2000);
+
+  // Stop Right Motor
+  stopAllMotors();
+  setLed(false);
+  delay(1000);
+
+  // Test 5: Both Motors Forward
+  Serial.println("[TEST 5/6] Both Motors: FORWARD");
+  setLed(true);
+  setLeftMotor(TEST_SPEED, true);
+  setRightMotor(TEST_SPEED, true);
+  delay(2000);
+
+  // Test 6: Both Motors Reverse
+  Serial.println("[TEST 6/6] Both Motors: REVERSE");
+  setLeftMotor(TEST_SPEED, false);
+  setRightMotor(TEST_SPEED, false);
+  delay(2000);
+
+  // Complete Cycle: Stop & Pause
+  Serial.println("[PAUSE] All motors STOPPED. Waiting 3 seconds before repeating cycle...\n");
+  stopAllMotors();
+  setLed(false);
+  delay(3000);
+}
