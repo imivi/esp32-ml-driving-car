@@ -2,21 +2,14 @@
 """
 control.py - Pygame Xbox Controller Teleoperation for ESP32 RC Car
 Reads an Xbox wired controller via Pygame and streams drive commands
-(<steer>,<throttle>) over USB Serial to the ESP32.
+(<steer>,<throttle>) over Wi-Fi UDP or USB Serial to the ESP32.
 """
 
 import sys
 import time
+import socket
 import argparse
 import glob
-
-try:
-    import serial
-    import serial.tools.list_ports
-except ImportError:
-    print("Error: 'pyserial' library not found.")
-    print("Please install it via: pip install pyserial (or uv add pyserial)")
-    sys.exit(1)
 
 try:
     import pygame
@@ -31,10 +24,15 @@ def auto_detect_serial_port():
     ports = glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*")
     if ports:
         return ports[0]
-    available = [p.device for p in serial.tools.list_ports.comports()]
-    if available:
-        return available[0]
-    return "/dev/ttyUSB0"
+    try:
+        import serial.tools.list_ports
+
+        available = [p.device for p in serial.tools.list_ports.comports()]
+        if available:
+            return available[0]
+    except ImportError:
+        pass
+    return None
 
 
 def apply_deadzone(value, threshold=0.08):
@@ -55,12 +53,29 @@ def normalize_trigger(axis_val):
 
 def main():
     parser = argparse.ArgumentParser(description="Xbox Controller Teleop (Pygame)")
+    # Wireless Wi-Fi UDP Options
+    parser.add_argument(
+        "--wifi",
+        action="store_true",
+        help="Send commands via Wi-Fi UDP (default: False)",
+    )
+    parser.add_argument(
+        "--ip",
+        type=str,
+        default="192.168.4.1",
+        help="ESP32 IP address (default: 192.168.4.1 for AP mode)",
+    )
+    parser.add_argument(
+        "--udp-port", type=int, default=4210, help="ESP32 UDP port (default: 4210)"
+    )
+    # Serial Options
     parser.add_argument(
         "--port", type=str, default=None, help="Serial port (e.g. /dev/ttyUSB0)"
     )
     parser.add_argument(
         "--baud", type=int, default=115200, help="Baud rate (default: 115200)"
     )
+    # Control Options
     parser.add_argument(
         "--rate", type=float, default=30.0, help="Command send rate in Hz (default: 30)"
     )
@@ -75,29 +90,62 @@ def main():
     )
     args = parser.parse_args()
 
-    # 1. Connect to ESP32 Serial
-    port = args.port if args.port else auto_detect_serial_port()
-    print(f"Connecting to ESP32 on {port} at {args.baud} baud...")
+    # Determine mode: Wi-Fi UDP or USB Serial
+    ser = None
+    udp_sock = None
+    target_addr = None
 
-    try:
-        ser = serial.Serial(port, args.baud, timeout=0.1)
-        time.sleep(1.5)  # Wait for ESP32 boot
-        ser.reset_input_buffer()
-        print("Serial connection established.")
-    except Exception as e:
-        print(f"Failed to open serial port '{port}': {e}")
-        print("Tip: Run 'sudo usermod -aG dialout $USER' or check connection.")
-        sys.exit(1)
+    if args.wifi:
+        # Wi-Fi UDP Mode
+        udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        target_addr = (args.ip, args.udp_port)
+        print("=================================================")
+        print(f" [MODE: Wi-Fi UDP] -> Target: {args.ip}:{args.udp_port}")
+        print(" IMPORTANT: Verify that your PC is connected to:")
+        print("   Wi-Fi SSID:     ESP32-RC-CAR")
+        print("   Wi-Fi Password: 12345678")
+        print("=================================================\n")
+    else:
+        # USB Serial Mode
+        try:
+            import serial
+        except ImportError:
+            print("Error: 'pyserial' library not found. Install with: uv add pyserial")
+            print("Or run in Wi-Fi mode using: uv run control.py --wifi")
+            sys.exit(1)
 
-    # 2. Initialize Pygame Joystick
+        port = args.port if args.port else auto_detect_serial_port()
+        if not port:
+            print("Error: No USB serial port detected (/dev/ttyUSB* or /dev/ttyACM*).")
+            print("If you want to control wirelessly over Wi-Fi, run:")
+            print("   uv run control.py --wifi")
+            sys.exit(1)
+
+        print("=================================================")
+        print(f" [MODE: USB Serial] -> Port: {port} @ {args.baud} baud")
+        print("=================================================\n")
+
+        try:
+            ser = serial.Serial(port, args.baud, timeout=0.1)
+            time.sleep(1.5)  # Wait for ESP32 boot
+            ser.reset_input_buffer()
+            print("Serial connection established.")
+        except Exception as e:
+            print(f"Failed to open serial port '{port}': {e}")
+            print("Tip: Run with '--wifi' to use Wi-Fi UDP, or check USB connection.")
+            sys.exit(1)
+
+    # Initialize Pygame Joystick
     pygame.init()
     pygame.joystick.init()
 
     joystick_count = pygame.joystick.get_count()
     if joystick_count == 0:
-        print("Error: No Xbox controller / joystick detected by Pygame!")
+        print("Error: No Xbox controller detected by Pygame!")
         print("Please connect your controller via USB and run again.")
-        ser.close()
+        if ser:
+            ser.close()
         sys.exit(1)
 
     joystick = pygame.joystick.Joystick(0)
@@ -115,6 +163,19 @@ def main():
     print("  • Ctrl+C: Exit safely\n")
 
     send_interval = 1.0 / args.rate
+
+    def send_packet(data_str):
+        raw = data_str.encode("utf-8")
+        if udp_sock:
+            try:
+                udp_sock.sendto(raw, target_addr)
+            except Exception as ex:
+                pass
+        elif ser:
+            try:
+                ser.write(raw)
+            except Exception:
+                pass
 
     try:
         while True:
@@ -168,9 +229,9 @@ def main():
             steer = max(-1.0, min(1.0, steer))
             throttle = max(-1.0, min(1.0, throttle))
 
-            # Send command to ESP32
+            # Send command
             cmd_str = f"{steer:.2f},{throttle:.2f}\n"
-            ser.write(cmd_str.encode("utf-8"))
+            send_packet(cmd_str)
 
             # Visual progress bars in console
             s_bar = int((steer + 1.0) * 10)
@@ -194,10 +255,13 @@ def main():
         print("Sending stop command to vehicle...")
         try:
             for _ in range(5):
-                ser.write(b"0.0,0.0\n")
-                ser.write(b"x\n")
+                send_packet("0.0,0.0\n")
+                send_packet("x\n")
                 time.sleep(0.05)
-            ser.close()
+            if ser:
+                ser.close()
+            if udp_sock:
+                udp_sock.close()
         except Exception:
             pass
         pygame.quit()
