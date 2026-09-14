@@ -1,6 +1,11 @@
 #include <Arduino.h>
-#include <WiFi.h>
-#include <WiFiUdp.h>
+#include "BluetoothSerial.h"
+#include "esp_bt_device.h"
+
+// Check that Bluetooth is enabled in the SDK configuration
+#if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
+#error Bluetooth is not enabled! Please enable it in the SDK configuration.
+#endif
 
 // ==========================================
 // Pinout Configuration (WEMOS LOLIN32 v1)
@@ -36,22 +41,14 @@ inline void setLed(bool state) {
 }
 
 // ==========================================
-// Wi-Fi Configuration
+// Bluetooth Configuration
 // ==========================================
-#define USE_WIFI_AP true
+const char* BT_DEVICE_NAME = "ESP32-RC-CAR";
+BluetoothSerial SerialBT;
 
-// Access Point mode settings (when USE_WIFI_AP is true)
-const char* AP_SSID = "ESP32-RC-CAR";
-const char* AP_PASS = "12345678"; // Min 8 characters
-
-// Station mode settings (when USE_WIFI_AP is false)
-const char* STA_SSID = "YOUR_WIFI_SSID";
-const char* STA_PASS = "YOUR_WIFI_PASSWORD";
-
-// UDP Port for receiving driving commands
-const unsigned int UDP_PORT = 4210;
-WiFiUDP udp;
-char udpPacketBuffer[256];
+// Input buffers
+String btBuffer = "";
+String serialBuffer = "";
 
 // ==========================================
 // PWM & Failsafe Configuration
@@ -64,9 +61,6 @@ const int PWM_CH_RIGHT = 1;
 const unsigned long FAILSAFE_TIMEOUT_MS = 600; // Stop motors if no command received for 600ms
 unsigned long lastCommandTime = 0;
 unsigned long lastStatusPrint = 0;
-
-// Serial input buffer
-String serialBuffer = "";
 
 // ==========================================
 // Motor Control Functions
@@ -212,6 +206,20 @@ void processCommand(const String& cmd, const char* source) {
   }
 }
 
+void checkBluetoothInput() {
+  while (SerialBT.available()) {
+    char c = (char)SerialBT.read();
+    if (c == '\n' || c == '\r') {
+      if (btBuffer.length() > 0) {
+        processCommand(btBuffer, "Bluetooth");
+        btBuffer = "";
+      }
+    } else {
+      btBuffer += c;
+    }
+  }
+}
+
 void checkSerialInput() {
   while (Serial.available()) {
     char c = (char)Serial.read();
@@ -222,17 +230,6 @@ void checkSerialInput() {
       }
     } else {
       serialBuffer += c;
-    }
-  }
-}
-
-void checkUdpInput() {
-  int packetSize = udp.parsePacket();
-  if (packetSize > 0) {
-    int len = udp.read(udpPacketBuffer, sizeof(udpPacketBuffer) - 1);
-    if (len > 0) {
-      udpPacketBuffer[len] = '\0';
-      processCommand(String(udpPacketBuffer), "UDP");
     }
   }
 }
@@ -267,56 +264,26 @@ void setup() {
 
   stopMotors();
 
-  // Initialize Wi-Fi
-  if (USE_WIFI_AP) {
-    WiFi.disconnect(true);
-    delay(100);
-    WiFi.mode(WIFI_AP);
-    bool apOk = WiFi.softAP(AP_SSID, AP_PASS);
-    delay(200);
+  // Initialize Bluetooth Serial (SPP)
+  SerialBT.begin(BT_DEVICE_NAME);
 
-    Serial.println("\n==========================================");
-    if (apOk) {
-      Serial.println("  [OK] Wi-Fi Access Point Started!");
-    } else {
-      Serial.println("  [ERROR] Failed to start Access Point!");
-    }
-    Serial.printf("  SSID:        %s\n", AP_SSID);
-    Serial.printf("  Password:    %s\n", AP_PASS);
-    Serial.print("  ESP32 IP:    ");
-    Serial.println(WiFi.softAPIP());
-    Serial.printf("  UDP Port:    %u\n", UDP_PORT);
-    Serial.println("==========================================\n");
-  } else {
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(STA_SSID, STA_PASS);
-    Serial.print("\nConnecting to Wi-Fi: ");
-    Serial.println(STA_SSID);
-    unsigned long startAttemptTime = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < 10000) {
-      delay(300);
-      Serial.print(".");
-    }
-    if (WiFi.status() == WL_CONNECTED) {
-      Serial.println("\nConnected!");
-      Serial.print("ESP32 IP: ");
-      Serial.println(WiFi.localIP());
-    } else {
-      Serial.println("\nFallback to Access Point mode...");
-      WiFi.mode(WIFI_AP);
-      WiFi.softAP(AP_SSID, AP_PASS);
-    }
+  Serial.println("\n==========================================");
+  Serial.println("  [OK] Bluetooth Serial (SPP) Started!");
+  Serial.printf("  Device Name: %s\n", BT_DEVICE_NAME);
+
+  const uint8_t* point = esp_bt_dev_get_address();
+  if (point != NULL) {
+    Serial.printf("  BT MAC:      %02X:%02X:%02X:%02X:%02X:%02X\n",
+                  point[0], point[1], point[2], point[3], point[4], point[5]);
   }
+  Serial.println("==========================================\n");
 
-  // Start UDP Listener
-  udp.begin(UDP_PORT);
-
-  Serial.println("Ready to receive drive commands over Wi-Fi UDP & USB Serial.");
+  Serial.println("Ready to receive drive commands over Bluetooth Serial & USB Serial.");
 }
 
 void loop() {
-  // 1. Process incoming commands
-  checkUdpInput();
+  // 1. Process incoming commands from Bluetooth and USB Serial
+  checkBluetoothInput();
   checkSerialInput();
 
   unsigned long now = millis();
@@ -330,15 +297,12 @@ void loop() {
     // Print periodic status to Serial every 3 seconds while idle
     if (now - lastStatusPrint > 3000) {
       lastStatusPrint = now;
-      if (USE_WIFI_AP) {
-        int clients = WiFi.softAPgetStationNum();
-        Serial.printf("[IDLE] Waiting for commands... Wi-Fi Clients connected: %d | AP IP: %s\n",
-                      clients, WiFi.softAPIP().toString().c_str());
-        if (clients == 0) {
-          Serial.println("       --> TIP: Connect your PC to Wi-Fi 'ESP32-RC-CAR' (pwd: 12345678)!");
-        }
-      } else {
-        Serial.printf("[IDLE] Waiting for commands... IP: %s\n", WiFi.localIP().toString().c_str());
+      bool btConnected = SerialBT.hasClient();
+      Serial.printf("[IDLE] Waiting for commands... Bluetooth client connected: %s\n",
+                    btConnected ? "YES" : "NO");
+      if (!btConnected) {
+        Serial.printf("       --> TIP: Pair with '%s' on your PC or run control.py --bt!\n",
+                      BT_DEVICE_NAME);
       }
     }
   } else {
