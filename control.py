@@ -2,15 +2,15 @@
 """
 control.py - Pygame Xbox Controller Teleoperation for ESP32 RC Car
 Reads an Xbox wired/wireless controller via Pygame and streams drive commands
-(<steer>,<throttle>) over Bluetooth (RFCOMM socket or Bluetooth Serial COM port)
-or USB Serial to the ESP32.
+(<steer>,<throttle>) over USB Serial to the ESP32 WROOM Transmitter Dongle.
+The transmitter forwards commands wirelessly to the RC Car (LOLIN32) via ESP-NOW.
+
 Fully supports Windows, Linux, and macOS.
 """
 
 import os
 import sys
 import time
-import socket
 import argparse
 import glob
 
@@ -56,7 +56,14 @@ def auto_detect_serial_port():
         ]
         known_vids = {0x10C4, 0x1A86, 0x0403, 0x303A, 0x2341, 0x2E8A}
 
-        for p in ports:
+        # Filter out virtual Bluetooth COM ports
+        valid_ports = [
+            p for p in ports
+            if "bthenum" not in (p.hwid or "").lower()
+            and "bluetooth" not in (p.description or "").lower()
+        ]
+
+        for p in valid_ports:
             desc = (p.description or "").lower()
             hwid = (p.hwid or "").lower()
             mfg = (p.manufacturer or "").lower()
@@ -66,66 +73,22 @@ def auto_detect_serial_port():
                 return p.device
 
         # Priority 2: Any USB serial port (excludes internal motherboard COM ports like COM1)
-        for p in ports:
+        for p in valid_ports:
             if p.vid is not None or "usb" in (p.hwid or "").lower():
                 return p.device
 
-        # Priority 3: On Windows, prefer any port other than COM1 (common motherboard header)
+        # Priority 3: On Windows, prefer any non-Bluetooth port other than COM1
         if sys.platform.startswith("win"):
-            non_com1 = [p.device for p in ports if p.device.upper() != "COM1"]
+            non_com1 = [p.device for p in valid_ports if p.device.upper() != "COM1"]
             if non_com1:
                 return non_com1[0]
 
-        return ports[0].device
+        return valid_ports[0].device if valid_ports else None
     except ImportError:
         linux_ports = glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*")
         return linux_ports[0] if linux_ports else None
     except Exception:
         return None
-
-
-def get_bluetooth_ports():
-    """
-    Returns candidate Bluetooth serial ports on Windows / Linux,
-    prioritizing outgoing ports linked to a paired remote device.
-    """
-    rfcomm_ports = glob.glob("/dev/rfcomm*")
-    if rfcomm_ports:
-        return rfcomm_ports
-
-    try:
-        import serial.tools.list_ports
-
-        ports = list(serial.tools.list_ports.comports())
-        bt_ports = []
-        for p in ports:
-            desc = (p.description or "").lower()
-            hwid = (p.hwid or "").lower()
-            if "bthenum" in hwid or "bluetooth" in desc or "bth" in hwid:
-                bt_ports.append(p)
-
-        # Priority 1: Ports tied to a specific remote device MAC address (not 000000000000)
-        device_ports = [
-            p.device
-            for p in bt_ports
-            if "000000000000" not in (p.hwid or "").lower()
-        ]
-        # Priority 2: Generic incoming ports
-        other_ports = [
-            p.device
-            for p in bt_ports
-            if "000000000000" in (p.hwid or "").lower()
-        ]
-
-        return device_ports + other_ports
-    except Exception:
-        return []
-
-
-def auto_detect_bluetooth_port():
-    """Detect primary paired Bluetooth Serial COM port."""
-    ports = get_bluetooth_ports()
-    return ports[0] if ports else None
 
 
 def apply_deadzone(value, threshold=0.08):
@@ -279,38 +242,14 @@ def main():
         os.system("")
 
     parser = argparse.ArgumentParser(
-        description="Xbox Controller Teleop (Pygame - Bluetooth / Serial)"
+        description="Xbox Controller Teleop -> ESP32 WROOM Transmitter (ESP-NOW)"
     )
-    # Wireless Bluetooth Options
-    parser.add_argument(
-        "--bt",
-        action="store_true",
-        help="Send commands wirelessly via Bluetooth (default: False)",
-    )
-    parser.add_argument(
-        "--bt-addr",
-        type=str,
-        default=None,
-        help="ESP32 Bluetooth MAC address (e.g. 24:6F:28:XX:XX:XX for RFCOMM socket)",
-    )
-    parser.add_argument(
-        "--bt-channel",
-        type=int,
-        default=1,
-        help="Bluetooth RFCOMM channel/port (default: 1)",
-    )
-    parser.add_argument(
-        "--bt-port",
-        type=str,
-        default=None,
-        help="Paired Bluetooth Serial COM port (e.g. COM5 on Windows, /dev/rfcomm0 on Linux)",
-    )
-    # USB Serial Options
+    # Serial Port Options
     parser.add_argument(
         "--port",
         type=str,
         default=None,
-        help="USB Serial port (e.g. COM3 on Windows, /dev/ttyUSB0 on Linux)",
+        help="USB Serial port of ESP32 WROOM Transmitter (e.g. COM3 on Windows, /dev/ttyUSB0 on Linux)",
     )
     parser.add_argument(
         "--baud", type=int, default=115200, help="Serial baud rate (default: 115200)"
@@ -330,173 +269,64 @@ def main():
     )
     args = parser.parse_args()
 
-    # Determine mode: Bluetooth or USB Serial
-    ser = None
-    bt_sock = None
+    # USB Serial Connection to ESP32 WROOM Transmitter
+    try:
+        import serial
+    except ImportError:
+        print("Error: 'pyserial' library not found. Install with: uv add pyserial")
+        sys.exit(1)
 
-    use_bluetooth = args.bt or (args.bt_addr is not None) or (args.bt_port is not None)
-
-    if use_bluetooth:
-        if args.bt_addr:
-            # Direct Bluetooth RFCOMM Socket mode
-            if not hasattr(socket, "AF_BLUETOOTH") or not hasattr(socket, "BTPROTO_RFCOMM"):
-                print("Error: Bluetooth RFCOMM socket is not supported on this platform/Python version.")
-                print("Tip: Pair the ESP32 in Windows Bluetooth settings and use --bt-port COMx instead.")
-                sys.exit(1)
-
-            print("=================================================")
-            print(f" [MODE: Bluetooth RFCOMM] -> Target: {args.bt_addr} (Channel {args.bt_channel})")
-            print(" Ensure the ESP32 is powered on and Bluetooth is active.")
-            print("=================================================\n")
-
-            try:
-                bt_sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
-                bt_sock.settimeout(5.0)
-                print(f"Connecting to {args.bt_addr} on channel {args.bt_channel}...")
-                bt_sock.connect((args.bt_addr, args.bt_channel))
-                bt_sock.settimeout(None)
-                print("Bluetooth connection established successfully.")
-            except Exception as e:
-                print(f"Failed to connect to Bluetooth address '{args.bt_addr}': {e}")
-                print("\nTroubleshooting tips:")
-                print("  1. Verify the Bluetooth MAC address of your ESP32.")
-                print("  2. Ensure your PC's Bluetooth adapter is turned ON.")
-                print("  3. Alternatively, pair your ESP32 via Windows Bluetooth settings and run:")
-                print("     uv run control.py --bt-port COMx")
-                sys.exit(1)
-
+    port = args.port if args.port else auto_detect_serial_port()
+    if not port:
+        if sys.platform.startswith("win"):
+            print("Error: No ESP32 USB transmitter dongle detected (e.g. COM3, COM4).")
+            print("Please plug the ESP32 WROOM transmitter into your PC via USB,")
+            print("or specify the port manually: uv run control.py --port COM3")
         else:
-            # Paired Bluetooth Serial Port mode
-            try:
-                import serial
-            except ImportError:
-                print("Error: 'pyserial' library not found. Install with: uv add pyserial")
-                sys.exit(1)
-
-            bt_port = args.bt_port if args.bt_port else auto_detect_bluetooth_port()
-            if not bt_port:
-                print("=================================================")
-                print(" [MODE: Bluetooth Serial (SPP)]")
-                print(" Error: No paired Bluetooth Serial port detected.")
-                print("=================================================")
-                print("To connect via Bluetooth, choose one of the following methods:\n")
-                print(" Method 1 (Recommended - Paired COM Port):")
-                print("   1. In Windows Settings > Bluetooth & devices, pair 'ESP32-RC-CAR'.")
-                print("   2. Windows will automatically assign a COM port (check Device Manager).")
-                print("   3. Run with: uv run control.py --bt-port COM5\n")
-                print(" Method 2 (Direct MAC RFCOMM):")
-                print("   Run with: uv run control.py --bt-addr XX:XX:XX:XX:XX:XX\n")
-
-                try:
-                    import serial.tools.list_ports
-
-                    available_ports = list(serial.tools.list_ports.comports())
-                    if available_ports:
-                        print("Available COM ports detected on system:")
-                        for p in available_ports:
-                            print(f"  - {p.device}: {p.description}")
-                except Exception:
-                    pass
-
-                print("\nOr to control using physical USB cable, run:")
-                print("   uv run control.py")
-                sys.exit(1)
-
-            print("=================================================")
-            print(f" [MODE: Bluetooth Serial] -> Port: {bt_port} @ {args.baud} baud")
-            print("=================================================\n")
-
-            try:
-                ser = serial.Serial(bt_port, args.baud, timeout=0.1)
-                time.sleep(0.5)
-                ser.reset_input_buffer()
-                print("Bluetooth serial connection established.")
-            except Exception as e:
-                err_str = str(e)
-                print(f"Failed to open Bluetooth serial port '{bt_port}': {e}\n")
-                if (
-                    "121" in err_str
-                    or "timeout" in err_str.lower()
-                    or "semaforo" in err_str.lower()
-                ):
-                    print("===================================================================")
-                    print(" [!] Bluetooth Timeout: The ESP32 did not respond to the connection.")
-                    print("===================================================================")
-                    print(" Common Causes & Solutions:")
-                    print("  1. Firmware Not Uploaded Yet:")
-                    print("     If you haven't uploaded the updated Bluetooth firmware to your ESP32,")
-                    print("     the ESP32 is still running the old Wi-Fi code and Bluetooth is OFF.")
-                    print("     --> Plug ESP32 into USB and upload: platformio run --target upload\n")
-                    print("  2. ESP32 Not Powered / Out of Range:")
-                    print("     --> Ensure the ESP32 is powered on and within Bluetooth range.\n")
-                    print("  3. COM Port Selection:")
-                    print("     Windows creates two Bluetooth ports (Incoming and Outgoing).")
-                    print(f"     If {bt_port} timed out, try specifying the other port:")
-                    print("     --> uv run control.py --bt-port COM6\n")
-                    print("  4. Or connect directly via Bluetooth MAC address:")
-                    print("     --> uv run control.py --bt-addr 24:62:AB:D5:9E:8A")
-                    print("===================================================================")
-                else:
-                    print("Tip: Ensure the ESP32 is powered on and paired, or try --bt-addr <MAC>.")
-                sys.exit(1)
-
-    else:
-        # USB Serial Mode
-        try:
-            import serial
-        except ImportError:
-            print("Error: 'pyserial' library not found. Install with: uv add pyserial")
-            print("Or run in Bluetooth mode using: uv run control.py --bt")
-            sys.exit(1)
-
-        port = args.port if args.port else auto_detect_serial_port()
-        if not port:
-            if sys.platform.startswith("win"):
-                print("Error: No ESP32 USB serial port detected (e.g. COM3, COM4).")
-                print("Please check that your ESP32 is plugged in and drivers (CP210x/CH340) are installed,")
-                print("or specify the port manually: uv run control.py --port COM3")
-            else:
-                print("Error: No USB serial port detected (/dev/ttyUSB* or /dev/ttyACM*).")
-                print("Please check that your ESP32 is plugged in, or specify the port manually:")
-                print("   uv run control.py --port /dev/ttyUSB0")
-
-            try:
-                import serial.tools.list_ports
-
-                available_ports = list(serial.tools.list_ports.comports())
-                if available_ports:
-                    print("\nAvailable ports detected on system:")
-                    for p in available_ports:
-                        print(f"  - {p.device}: {p.description}")
-            except Exception:
-                pass
-
-            print("\nIf you want to control wirelessly over Bluetooth, run:")
-            print("   uv run control.py --bt")
-            sys.exit(1)
-
-        print("=================================================")
-        print(f" [MODE: USB Serial] -> Port: {port} @ {args.baud} baud")
-        print("=================================================\n")
+            print("Error: No USB serial port detected (/dev/ttyUSB* or /dev/ttyACM*).")
+            print("Please plug the ESP32 WROOM transmitter into your PC, or specify:")
+            print("   uv run control.py --port /dev/ttyUSB0")
 
         try:
-            ser = serial.Serial(port, args.baud, timeout=0.1)
-            # De-assert DTR / RTS to ensure ESP32 does not stay held in reset / bootloader
-            try:
-                ser.dtr = False
-                ser.rts = False
-            except Exception:
-                pass
-            time.sleep(1.5)  # Wait for ESP32 boot
-            ser.reset_input_buffer()
-            print("Serial connection established.")
-        except Exception as e:
-            print(f"Failed to open serial port '{port}': {e}")
-            if sys.platform.startswith("win"):
-                print("Tip: Check Windows Device Manager for the correct COM port, or run with '--bt'.")
-            else:
-                print("Tip: Check USB connection and user permissions (e.g. dialout group), or run with '--bt'.")
-            sys.exit(1)
+            import serial.tools.list_ports
+
+            available_ports = [
+                p for p in serial.tools.list_ports.comports()
+                if "bthenum" not in (p.hwid or "").lower()
+            ]
+            if available_ports:
+                print("\nAvailable USB COM ports detected on system:")
+                for p in available_ports:
+                    print(f"  - {p.device}: {p.description}")
+        except Exception:
+            pass
+
+        sys.exit(1)
+
+    print("=================================================")
+    print(f" [MODE: ESP-NOW Wireless Bridge]")
+    print(f" Transmitter Dongle: {port} @ {args.baud} baud")
+    print(f" PC (USB) -> ESP32 WROOM -> [ESP-NOW] -> LOLIN32 RC Car")
+    print("=================================================\n")
+
+    try:
+        ser = serial.Serial(port, args.baud, timeout=0.1)
+        # De-assert DTR / RTS to ensure ESP32 does not stay held in reset / bootloader
+        try:
+            ser.dtr = False
+            ser.rts = False
+        except Exception:
+            pass
+        time.sleep(1.0)  # Wait for ESP32 boot
+        ser.reset_input_buffer()
+        print(f"Serial connection to transmitter on {port} established.")
+    except Exception as e:
+        print(f"Failed to open serial port '{port}': {e}")
+        if sys.platform.startswith("win"):
+            print("Tip: Check Windows Device Manager for the correct COM port.")
+        else:
+            print("Tip: Check USB connection and user permissions (e.g. dialout group).")
+        sys.exit(1)
 
     # Initialize Pygame and Controller
     pygame.init()
@@ -507,8 +337,6 @@ def main():
         print("Please connect your controller via USB/Bluetooth and run again.")
         if ser:
             ser.close()
-        if bt_sock:
-            bt_sock.close()
         sys.exit(1)
 
     print(
@@ -527,12 +355,7 @@ def main():
 
     def send_packet(data_str):
         raw = data_str.encode("utf-8")
-        if bt_sock:
-            try:
-                bt_sock.sendall(raw)
-            except Exception:
-                pass
-        elif ser:
+        if ser:
             try:
                 ser.write(raw)
             except Exception:
@@ -561,7 +384,7 @@ def main():
             steer = max(-1.0, min(1.0, steer))
             throttle = max(-1.0, min(1.0, throttle))
 
-            # Send command
+            # Send command to transmitter dongle
             cmd_str = f"{steer:.2f},{throttle:.2f}\n"
             send_packet(cmd_str)
 
@@ -591,8 +414,6 @@ def main():
                 time.sleep(0.05)
             if ser:
                 ser.close()
-            if bt_sock:
-                bt_sock.close()
         except Exception:
             pass
         pygame.quit()

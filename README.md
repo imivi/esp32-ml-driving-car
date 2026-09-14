@@ -100,3 +100,48 @@ python autonomous_pilot.py
 ```
 
 * Includes a dead-man switch on the Xbox controller (`B` button) and emergency obstacle braking when `dist_center < 10 cm`.
+
+---
+
+## Flashing Firmware with PlatformIO
+
+This project defines two separate firmware environments in `platformio.ini`:
+* **`lolin32_car`**: Mounted on the RC car (WEMOS LOLIN32), controls TB6612FNG motor driver & receives commands via ESP-NOW.
+* **`wroom_transmitter`**: Connected to the PC via USB (ESP32 WROOM DevKit), receives commands from Python scripts and broadcasts them via ESP-NOW.
+
+### 1. Flash the Transmitter Dongle (`wroom_transmitter`)
+
+**Via CLI:**
+```bash
+# Build and upload
+pio run -e wroom_transmitter -t upload
+
+# Upload and immediately open the serial monitor
+pio run -e wroom_transmitter -t upload -t monitor
+```
+
+**Via VS Code GUI:**
+1. Click the **PlatformIO** alien icon (👽) on the left sidebar.
+2. Under **PROJECT TASKS**, expand **`wroom_transmitter`** -> **General**.
+3. Click **Upload** (or **Upload and Monitor**).
+
+> **Troubleshooting: "Wrong boot mode detected (0x13) / Failed to connect to ESP32"**
+> If the upload fails or hangs at `Connecting........_____.....`:
+> 1. Run the upload command.
+> 2. As soon as `Connecting........` appears, press and **HOLD the `BOOT` (IO0) button** on the ESP32 board.
+> 3. Release the button once `Writing at 0x00001000...` begins.
+> *(Alternative: Hold `BOOT`, press and release `EN`/`RST`, then release `BOOT`).*
+
+---
+
+### 2. Flash the Car Receiver (`lolin32_car`)
+
+**Via CLI:**
+```bash
+pio run -e lolin32_car -t upload -t monitor
+```
+
+**Via VS Code GUI:**
+1. Under **PROJECT TASKS**, expand **`lolin32_car`** -> **General**.
+2. Click **Upload and Monitor**.
+3. Note down the printed **Receiver MAC Address** on startup to verify it matches `broadcastAddress` in `src/transmitter_dongle.cpp`.
