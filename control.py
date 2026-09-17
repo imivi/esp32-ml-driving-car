@@ -13,6 +13,8 @@ import sys
 import time
 import argparse
 import glob
+import csv
+from datetime import datetime
 
 # Ensure joystick events are processed even without a focused display window
 os.environ["SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS"] = "1"
@@ -194,8 +196,9 @@ class ControllerReader:
                 throttle = -throttle
 
             b_button = bool(self.ctrl.get_button(pygame.CONTROLLER_BUTTON_B))
+            a_button = bool(self.ctrl.get_button(pygame.CONTROLLER_BUTTON_A))
 
-            return steer, throttle, b_button
+            return steer, throttle, b_button, a_button
 
         elif self.mode == "joystick":
             # 1. Steering: Left Stick X (Axis 0)
@@ -227,14 +230,17 @@ class ControllerReader:
             if invert_throttle:
                 throttle = -throttle
 
-            # B button: standard button index 1
+            # B button: standard button index 1; A button: standard button index 0
             b_button = False
+            a_button = False
+            if self.buttons_count > 0:
+                a_button = bool(self.joy.get_button(0))
             if self.buttons_count > 1:
                 b_button = bool(self.joy.get_button(1))
 
-            return steer, throttle, b_button
+            return steer, throttle, b_button, a_button
 
-        return 0.0, 0.0, False
+        return 0.0, 0.0, False, False
 
 
 def main():
@@ -267,6 +273,18 @@ def main():
     )
     parser.add_argument(
         "--invert-throttle", action="store_true", help="Invert stick throttle axis"
+    )
+    parser.add_argument(
+        "--output",
+        type=str,
+        default="track_data.csv",
+        help="Path to CSV file where sensor and driving samples are saved (default: track_data.csv)",
+    )
+    parser.add_argument(
+        "--record-rate",
+        type=float,
+        default=20.0,
+        help="Data recording frequency in Hz while holding [A] (default: 20 Hz / 50ms)",
     )
     args = parser.parse_args()
 
@@ -362,8 +380,9 @@ def main():
             except Exception:
                 pass
 
-    # Distance telemetry state (in cm)
+    # Raw and formatted distance telemetry state
     tof_dists = {"L": None, "C": None, "R": None}
+    raw_dists = {"L": None, "C": None, "R": None}
 
     def read_telemetry():
         if not ser or ser.in_waiting == 0:
@@ -378,11 +397,49 @@ def main():
                         dL = int(parts[0])
                         dC = int(parts[1])
                         dR = int(parts[2])
+                        raw_dists["L"] = dL if dL < 8000 else None
+                        raw_dists["C"] = dC if dC < 8000 else None
+                        raw_dists["R"] = dR if dR < 8000 else None
                         tof_dists["L"] = f"{dL/10.0:.1f}cm" if dL < 8000 else "--"
                         tof_dists["C"] = f"{dC/10.0:.1f}cm" if dC < 8000 else "--"
                         tof_dists["R"] = f"{dR/10.0:.1f}cm" if dR < 8000 else "--"
         except Exception:
             pass
+
+    # Initialize CSV file with header if it doesn't already exist (always appends)
+    csv_file_path = args.output
+    csv_header = [
+        "timestamp_iso",
+        "timestamp_epoch",
+        "dist_left_mm",
+        "dist_center_mm",
+        "dist_right_mm",
+        "steer",
+        "throttle",
+        "direction",
+    ]
+    file_exists = os.path.isfile(csv_file_path)
+    existing_samples_count = 0
+    if file_exists and os.path.getsize(csv_file_path) > 0:
+        try:
+            with open(csv_file_path, mode="r", encoding="utf-8") as f:
+                # Subtract 1 for header
+                existing_samples_count = max(0, sum(1 for _ in f) - 1)
+        except Exception:
+            existing_samples_count = 0
+
+    csv_file = open(csv_file_path, mode="a", newline="", encoding="utf-8")
+    csv_writer = csv.writer(csv_file)
+    if not file_exists or os.path.getsize(csv_file_path) == 0:
+        csv_writer.writerow(csv_header)
+        csv_file.flush()
+
+    session_saved_samples = 0
+    last_sample_time = 0.0
+    record_interval = 1.0 / max(1.0, args.record_rate)
+
+    print(f"Data logging active: Appending samples to '{csv_file_path}' (Existing rows: {existing_samples_count})")
+    print(f"Hold [A] on controller to continuously record samples at {args.record_rate} Hz (~{int(record_interval*1000)}ms interval).\n")
 
     try:
         while True:
@@ -392,7 +449,7 @@ def main():
             # Read any incoming sensor telemetry from the vehicle
             read_telemetry()
 
-            steer, throttle, b_button = controller.read_inputs(
+            steer, throttle, b_button, a_button = controller.read_inputs(
                 deadzone=args.deadzone,
                 invert_steer=args.invert_steer,
                 invert_throttle=args.invert_throttle,
@@ -414,6 +471,56 @@ def main():
             cmd_str = f"{steer:.2f},{throttle:.2f}\n"
             send_packet(cmd_str)
 
+            # Determine human-readable direction label
+            if abs(throttle) < 0.05 and abs(steer) < 0.05:
+                direction_label = "STOP"
+            elif throttle >= 0.05:
+                if steer > 0.15:
+                    direction_label = "FORWARD_RIGHT"
+                elif steer < -0.15:
+                    direction_label = "FORWARD_LEFT"
+                else:
+                    direction_label = "FORWARD"
+            elif throttle <= -0.05:
+                if steer > 0.15:
+                    direction_label = "REVERSE_RIGHT"
+                elif steer < -0.15:
+                    direction_label = "REVERSE_LEFT"
+                else:
+                    direction_label = "REVERSE"
+            elif steer > 0.15:
+                direction_label = "TURN_RIGHT"
+            else:
+                direction_label = "TURN_LEFT"
+
+            # Only save data when moving forward or turning (exclude STOP and REVERSE)
+            is_valid_movement = direction_label in (
+                "FORWARD",
+                "FORWARD_LEFT",
+                "FORWARD_RIGHT",
+                "TURN_LEFT",
+                "TURN_RIGHT",
+            )
+
+            # Record samples every few milliseconds as long as [A] is held down and moving validly
+            now_time = time.time()
+            if a_button and is_valid_movement and (now_time - last_sample_time >= record_interval):
+                now_dt = datetime.now()
+                row = [
+                    now_dt.isoformat(),
+                    f"{now_dt.timestamp():.4f}",
+                    raw_dists["L"] if raw_dists["L"] is not None else -1,
+                    raw_dists["C"] if raw_dists["C"] is not None else -1,
+                    raw_dists["R"] if raw_dists["R"] is not None else -1,
+                    f"{steer:.3f}",
+                    f"{throttle:.3f}",
+                    direction_label,
+                ]
+                csv_writer.writerow(row)
+                csv_file.flush()
+                session_saved_samples += 1
+                last_sample_time = now_time
+
             # Visual progress bars in console
             s_bar = int((steer + 1.0) * 10)
             t_bar = int((throttle + 1.0) * 10)
@@ -426,8 +533,17 @@ def main():
             r_str = tof_dists["R"] or "--"
             tof_str = f"| ToF L:{l_str:>6} C:{c_str:>6} R:{r_str:>6}"
 
-            line = f"\r{status_note} | S: {steer:+0.2f} {steer_vis} | T: {throttle:+0.2f} {throttle_vis} {tof_str} "
-            sys.stdout.write(line.ljust(115))
+            total_samples = existing_samples_count + session_saved_samples
+            if a_button:
+                if is_valid_movement:
+                    rec_str = f" | [REC ● #{total_samples}]"
+                else:
+                    rec_str = f" | [PAUSED (Idle/Rev) #{total_samples}]"
+            else:
+                rec_str = f" | [Total: {total_samples}]"
+
+            line = f"\r{status_note} | S: {steer:+0.2f} {steer_vis} | T: {throttle:+0.2f} {throttle_vis} {tof_str}{rec_str} "
+            sys.stdout.write(line.ljust(130))
             sys.stdout.flush()
 
             # Maintain update rate
@@ -446,6 +562,14 @@ def main():
                 time.sleep(0.05)
             if ser:
                 ser.close()
+        except Exception:
+            pass
+        try:
+            if csv_file and not csv_file.closed:
+                csv_file.flush()
+                csv_file.close()
+                total_samples = existing_samples_count + session_saved_samples
+                print(f"Saved {session_saved_samples} new samples this session (Total in '{csv_file_path}': {total_samples}).")
         except Exception:
             pass
         pygame.quit()
