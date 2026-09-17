@@ -30,9 +30,17 @@ unsigned long lastStatusPrint = 0;
 void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
 {
   lastSendSuccess = (status == ESP_NOW_SEND_SUCCESS);
-  Serial.printf("[ESP-NOW] Sent packet #%u -> %s\n",
-                packetSequence,
-                lastSendSuccess ? "OK (Broadcast Delivered)" : "FAILED");
+}
+
+void onDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len)
+{
+  if (len == sizeof(TelemetryPacket))
+  {
+    TelemetryPacket pkt;
+    memcpy(&pkt, incomingData, sizeof(TelemetryPacket));
+    // Print telemetry to USB Serial in easily parseable CSV format: TELEM:<left>,<center>,<right>,<seq>
+    Serial.printf("TELEM:%u,%u,%u,%u\n", pkt.dist_left, pkt.dist_center, pkt.dist_right, pkt.seq);
+  }
 }
 
 void parseAndTransmit(const String &cmd)
@@ -140,6 +148,7 @@ void setup()
   Serial.println("  [OK] ESP-NOW Initialized Successfully");
 
   esp_now_register_send_cb(onDataSent);
+  esp_now_register_recv_cb(onDataRecv);
 
   // Register peer
   esp_now_peer_info_t peerInfo = {};

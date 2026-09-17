@@ -175,13 +175,11 @@ class ControllerReader:
             if invert_steer:
                 steer = -steer
 
-            # Pushing forward on stick is negative in SDL
+            # Stick throttle
             raw_stick_y = -(self.ctrl.get_axis(pygame.CONTROLLER_AXIS_LEFTY) / 32767.0)
             stick_throttle = apply_deadzone(raw_stick_y, deadzone)
-            if invert_throttle:
-                stick_throttle = -stick_throttle
 
-            # Triggers: 0 to 32767
+            # Triggers: 0 to 32767 (RT = Forward, LT = Reverse)
             rt_raw = max(0.0, self.ctrl.get_axis(pygame.CONTROLLER_AXIS_TRIGGERRIGHT) / 32767.0)
             lt_raw = max(0.0, self.ctrl.get_axis(pygame.CONTROLLER_AXIS_TRIGGERLEFT) / 32767.0)
 
@@ -192,6 +190,9 @@ class ControllerReader:
                 trigger_throttle -= lt_raw
 
             throttle = trigger_throttle if abs(trigger_throttle) > 0.05 else stick_throttle
+            if invert_throttle:
+                throttle = -throttle
+
             b_button = bool(self.ctrl.get_button(pygame.CONTROLLER_BUTTON_B))
 
             return steer, throttle, b_button
@@ -206,8 +207,6 @@ class ControllerReader:
             # 2. Stick Throttle: Left Stick Y (Axis 1)
             raw_stick_y = -self.joy.get_axis(1)
             stick_throttle = apply_deadzone(raw_stick_y, deadzone)
-            if invert_throttle:
-                stick_throttle = -stick_throttle
 
             # 3. Trigger Throttle
             trigger_throttle = 0.0
@@ -225,6 +224,8 @@ class ControllerReader:
                     trigger_throttle = -combined
 
             throttle = trigger_throttle if abs(trigger_throttle) > 0.05 else stick_throttle
+            if invert_throttle:
+                throttle = -throttle
 
             # B button: standard button index 1
             b_button = False
@@ -361,10 +362,35 @@ def main():
             except Exception:
                 pass
 
+    # Distance telemetry state (in cm)
+    tof_dists = {"L": None, "C": None, "R": None}
+
+    def read_telemetry():
+        if not ser or ser.in_waiting == 0:
+            return
+        try:
+            while ser.in_waiting > 0:
+                raw_line = ser.readline().decode("utf-8", errors="ignore").strip()
+                if raw_line.startswith("TELEM:"):
+                    # Format: TELEM:<left_mm>,<center_mm>,<right_mm>,<seq>
+                    parts = raw_line[6:].split(",")
+                    if len(parts) >= 3:
+                        dL = int(parts[0])
+                        dC = int(parts[1])
+                        dR = int(parts[2])
+                        tof_dists["L"] = f"{dL/10.0:.1f}cm" if dL < 8000 else "--"
+                        tof_dists["C"] = f"{dC/10.0:.1f}cm" if dC < 8000 else "--"
+                        tof_dists["R"] = f"{dR/10.0:.1f}cm" if dR < 8000 else "--"
+        except Exception:
+            pass
+
     try:
         while True:
             start_time = time.time()
             pygame.event.pump()
+
+            # Read any incoming sensor telemetry from the vehicle
+            read_telemetry()
 
             steer, throttle, b_button = controller.read_inputs(
                 deadzone=args.deadzone,
@@ -394,8 +420,14 @@ def main():
             steer_vis = "[" + "#" * s_bar + " " * (20 - s_bar) + "]"
             throttle_vis = "[" + "#" * t_bar + " " * (20 - t_bar) + "]"
 
-            line = f"\r{status_note} | Steer: {steer:+0.2f} {steer_vis} | Throttle: {throttle:+0.2f} {throttle_vis} "
-            sys.stdout.write(line.ljust(85))
+            # Format sensor distance string
+            l_str = tof_dists["L"] or "--"
+            c_str = tof_dists["C"] or "--"
+            r_str = tof_dists["R"] or "--"
+            tof_str = f"| ToF L:{l_str:>6} C:{c_str:>6} R:{r_str:>6}"
+
+            line = f"\r{status_note} | S: {steer:+0.2f} {steer_vis} | T: {throttle:+0.2f} {throttle_vis} {tof_str} "
+            sys.stdout.write(line.ljust(115))
             sys.stdout.flush()
 
             # Maintain update rate

@@ -2,6 +2,8 @@
 #include <WiFi.h>
 #include <esp_now.h>
 #include <esp_wifi.h>
+#include <Wire.h>
+#include <Adafruit_VL53L0X.h>
 #include "espnow_protocol.h"
 
 // ==========================================
@@ -9,6 +11,8 @@
 // Mounted on the RC car chassis
 // Receives ControlPacket via ESP-NOW and
 // drives the TB6612FNG dual motor driver.
+// Reads 3x VL53L0X ToF sensors and streams
+// telemetry back to the transmitter dongle.
 // ==========================================
 
 #define PIN_STBY 4
@@ -28,10 +32,43 @@
 #define LED_BUILTIN 5
 #endif
 
+// ==========================================
+// VL53L0X ToF Distance Sensors Configuration
+// ==========================================
+// I2C bus pins
+#define I2C_SDA 21
+#define I2C_SCL 22
+
+// XSHUT shutdown/enable pins for dynamic I2C address assignment
+#define PIN_XSHUT_LEFT 18
+#define PIN_XSHUT_CENTER 19
+#define PIN_XSHUT_RIGHT 23
+
+// Unique I2C addresses assigned dynamically during setup
+#define ADDR_TOF_LEFT 0x30
+#define ADDR_TOF_CENTER 0x31
+#define ADDR_TOF_RIGHT 0x32
+
+Adafruit_VL53L0X sensorLeft;
+Adafruit_VL53L0X sensorCenter;
+Adafruit_VL53L0X sensorRight;
+
+bool tofLeftReady = false;
+bool tofCenterReady = false;
+bool tofRightReady = false;
+
+TelemetryPacket telemetryPacket;
+uint32_t telemetrySeq = 0;
+unsigned long lastTelemetryTime = 0;
+const unsigned long TELEMETRY_INTERVAL_MS = 50; // 20 Hz telemetry rate
+
+// Broadcast MAC for telemetry packets (sends to transmitter dongle)
+uint8_t broadcastPeerAddr[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+
 // Motor direction invert flags (set to true if your motor wiring is physically inverted)
-const bool INVERT_LEFT_MOTOR = false;
-const bool INVERT_RIGHT_MOTOR = false;
-const bool INVERT_STEERING = true; // Inverts Left / Right steering direction
+const bool INVERT_LEFT_MOTOR = true;
+const bool INVERT_RIGHT_MOTOR = true;
+const bool INVERT_STEERING = false; // Steering direction: false = normal (left is left, right is right)
 
 // LED Logic polarity (Active LOW for LOLIN32)
 #define LED_ACTIVE_STATE LOW
@@ -238,6 +275,97 @@ void checkSerialInput()
   }
 }
 
+// ==========================================
+// VL53L0X Initialization Routine
+// ==========================================
+void setupSensors()
+{
+  Serial.println("[ToF] Initializing I2C bus and VL53L0X distance sensors...");
+  Wire.begin(I2C_SDA, I2C_SCL);
+  Wire.setClock(400000); // 400 kHz fast I2C mode
+
+  // 1. Reset all sensors: Drive all XSHUT pins LOW (hardware shutdown)
+  pinMode(PIN_XSHUT_LEFT, OUTPUT);
+  pinMode(PIN_XSHUT_CENTER, OUTPUT);
+  pinMode(PIN_XSHUT_RIGHT, OUTPUT);
+
+  digitalWrite(PIN_XSHUT_LEFT, LOW);
+  digitalWrite(PIN_XSHUT_CENTER, LOW);
+  digitalWrite(PIN_XSHUT_RIGHT, LOW);
+  delay(20);
+
+  // 2. Initialize Left Sensor
+  digitalWrite(PIN_XSHUT_LEFT, HIGH);
+  delay(15);
+  if (sensorLeft.begin(ADDR_TOF_LEFT))
+  {
+    tofLeftReady = true;
+    sensorLeft.startRangeContinuous(40); // 40ms interval (~25Hz)
+    Serial.printf("  [OK] Left ToF initialized at address 0x%02X\n", ADDR_TOF_LEFT);
+  }
+  else
+  {
+    Serial.println("  [WARN] Failed to initialize Left ToF sensor!");
+  }
+
+  // 3. Initialize Center Sensor
+  digitalWrite(PIN_XSHUT_CENTER, HIGH);
+  delay(15);
+  if (sensorCenter.begin(ADDR_TOF_CENTER))
+  {
+    tofCenterReady = true;
+    sensorCenter.startRangeContinuous(40);
+    Serial.printf("  [OK] Center ToF initialized at address 0x%02X\n", ADDR_TOF_CENTER);
+  }
+  else
+  {
+    Serial.println("  [WARN] Failed to initialize Center ToF sensor!");
+  }
+
+  // 4. Initialize Right Sensor
+  digitalWrite(PIN_XSHUT_RIGHT, HIGH);
+  delay(15);
+  if (sensorRight.begin(ADDR_TOF_RIGHT))
+  {
+    tofRightReady = true;
+    sensorRight.startRangeContinuous(40);
+    Serial.printf("  [OK] Right ToF initialized at address 0x%02X\n", ADDR_TOF_RIGHT);
+  }
+  else
+  {
+    Serial.println("  [WARN] Failed to initialize Right ToF sensor!");
+  }
+}
+
+// Read current ranges from ToF sensors and stream via ESP-NOW
+void updateAndSendTelemetry()
+{
+  uint16_t dLeft = 8190;
+  uint16_t dCenter = 8190;
+  uint16_t dRight = 8190;
+
+  if (tofLeftReady && sensorLeft.isRangeComplete())
+  {
+    dLeft = sensorLeft.readRangeResult();
+  }
+  if (tofCenterReady && sensorCenter.isRangeComplete())
+  {
+    dCenter = sensorCenter.readRangeResult();
+  }
+  if (tofRightReady && sensorRight.isRangeComplete())
+  {
+    dRight = sensorRight.readRangeResult();
+  }
+
+  telemetryPacket.dist_left = dLeft;
+  telemetryPacket.dist_center = dCenter;
+  telemetryPacket.dist_right = dRight;
+  telemetryPacket.seq = ++telemetrySeq;
+
+  // Broadcast telemetry packet over ESP-NOW to transmitter dongle
+  esp_now_send(broadcastPeerAddr, (uint8_t *)&telemetryPacket, sizeof(TelemetryPacket));
+}
+
 void setup()
 {
   Serial.begin(115200);
@@ -263,6 +391,9 @@ void setup()
   ledcAttachPin(PIN_PWMB, PWM_CH_RIGHT);
 
   stopMotors();
+
+  // Initialize ToF sensors
+  setupSensors();
 
   // Set device as a Wi-Fi Station for ESP-NOW
   WiFi.mode(WIFI_STA);
@@ -290,8 +421,18 @@ void setup()
 
   esp_now_register_recv_cb(onDataRecv);
 
+  // Register broadcast peer so car can transmit telemetry back
+  esp_now_peer_info_t peerInfo = {};
+  memcpy(peerInfo.peer_addr, broadcastPeerAddr, 6);
+  peerInfo.channel = 1;
+  peerInfo.encrypt = false;
+  if (esp_now_add_peer(&peerInfo) == ESP_OK)
+  {
+    Serial.println("  [OK] ESP-NOW Telemetry Peer registered (Broadcast Ch 1)");
+  }
+
   Serial.println("==========================================\n");
-  Serial.println("Ready to receive driving commands wirelessly via ESP-NOW.");
+  Serial.println("Ready to receive driving commands and stream sensor telemetry.");
 }
 
 void loop()
@@ -299,6 +440,13 @@ void loop()
   checkSerialInput();
 
   unsigned long now = millis();
+
+  // Stream distance telemetry periodically at ~20 Hz
+  if (now - lastTelemetryTime >= TELEMETRY_INTERVAL_MS)
+  {
+    lastTelemetryTime = now;
+    updateAndSendTelemetry();
+  }
 
   // Failsafe watchdog: Stop motors if command stream stops
   if (now - lastCommandTime > FAILSAFE_TIMEOUT_MS)
@@ -311,7 +459,9 @@ void loop()
     if (now - lastStatusPrint > 3000)
     {
       lastStatusPrint = now;
-      Serial.printf("[CAR IDLE] Waiting for ESP-NOW commands... Packets received: %u\n", packetCount);
+      Serial.printf("[CAR IDLE] Packets: %u | Telemetry #%u | L: %u mm, C: %u mm, R: %u mm\n",
+                    packetCount, telemetrySeq,
+                    telemetryPacket.dist_left, telemetryPacket.dist_center, telemetryPacket.dist_right);
     }
   }
   else
