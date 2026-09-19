@@ -228,7 +228,7 @@ def main():
         joblib.dump(artifact, args.output)
         print(f"\nTrained model successfully saved to: '{args.output}'")
         print(f"Classes: {artifact['classes']}")
-        print(f"Model ready for inference with 'autonomous_pilot.py'!\n")
+        print(f"Model ready for inference with 'autopilot.py'!\n")
 
     except Exception as e:
         print(f"\nTraining failed: {e}", file=sys.stderr)
