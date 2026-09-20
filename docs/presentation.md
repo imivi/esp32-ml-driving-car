@@ -71,6 +71,22 @@ style: |
     grid-template-columns: 1fr 1fr 1fr;
     gap: 16px;
   }
+  .grid-6 {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 12px;
+    margin-top: 18px;
+  }
+  .card-square {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 12px 6px;
+    min-height: 120px;
+    margin-bottom: 0 !important;
+  }
   .card {
     background: #ffffff;
     border: 1.5px solid #e2e8f0;
@@ -129,6 +145,15 @@ style: |
     background: #ffffff;
     box-shadow: 0 4px 12px rgba(0,0,0,0.08);
   }
+  .thumb-img {
+    height: 52px !important;
+    max-height: 52px !important;
+    width: auto !important;
+    max-width: 90% !important;
+    object-fit: contain !important;
+    display: block;
+    margin: 0 auto 6px auto;
+  }
 ---
 
 <!-- Slide 1: Title Slide -->
@@ -139,18 +164,30 @@ style: |
     Behavioral Cloning tramite Sensori ToF Laser e Telemetria ESP-NOW in Tempo Reale
   </p>
 
-  <div style="display: flex; justify-content: center; gap: 16px; margin-top: 20px;">
-    <div class="card" style="width: 190px; text-align: center; padding: 10px;">
-      <strong>Componenti principali</strong><br><span style="font-size: 14px; color: #64748b;">ESP32 + TB6612FNG</span>
+  <div class="grid-6">
+    <div class="card card-square">
+      <img src="lolin32.jpg" alt="ESP32 LOLIN32" class="thumb-img" height="48" />
+      <strong style="font-size: 13px;">Microcontroller</strong><br><span style="font-size: 11px; color: #64748b;">ESP32</span>
     </div>
-    <div class="card" style="width: 190px; text-align: center; padding: 10px;">
-      <strong>Sistema wireless</strong><br><span style="font-size: 14px; color: #64748b;">ESP-NOW @ 50 Hz</span>
+    <div class="card card-square">
+      <img src="JGY370.jpg" alt="Motore DC JGY370" class="thumb-img" height="48" />
+      <strong style="font-size: 13px;">Motori</strong><br><span style="font-size: 11px; color: #64748b;">2× Motori JGY370</span>
     </div>
-    <div class="card" style="width: 190px; text-align: center; padding: 10px;">
-      <strong>Sensori</strong><br><span style="font-size: 14px; color: #64748b;">3× Laser ToF VL53L0X</span>
+    <div class="card card-square">
+      <img src="TB6612FNG.jpg" alt="Driver Motori TB6612FNG" class="thumb-img" height="48" />
+      <strong style="font-size: 13px;">Driver Motori</strong><br><span style="font-size: 11px; color: #64748b;">TB6612FNG Dual H</span>
     </div>
-    <div class="card" style="width: 190px; text-align: center; padding: 10px;">
-      <strong>Machine Learning</strong><br><span style="font-size: 14px; color: #64748b;">Random Forest</span>
+    <div class="card card-square">
+      <img src="ESP32_devkit_v1.png" alt="ESP32 DevKit Dongle" class="thumb-img" height="48" />
+      <strong style="font-size: 13px;">Wireless</strong><br><span style="font-size: 11px; color: #64748b;">ESP-NOW @ 50 Hz</span>
+    </div>
+    <div class="card card-square">
+      <img src="VL53L0X.jpg" alt="Sensore ToF VL53L0X" class="thumb-img" height="48" />
+      <strong style="font-size: 13px;">Sensori di distanza</strong><br><span style="font-size: 11px; color: #64748b;">3x Laser VL53L0X</span>
+    </div>
+    <div class="card card-square">
+      <img src="decision_tree.png" alt="Modello Random Forest" class="thumb-img" height="48" />
+      <strong style="font-size: 13px;">Machine Learning</strong><br><span style="font-size: 11px; color: #64748b;">Random Forest</span>
     </div>
   </div>
 </div>
@@ -185,15 +222,35 @@ Presenter Notes:
   </div>
 </div>
 
-<div class="highlight-card" style="margin-top: 18px; text-align: center;">
-  <strong>Risultato Chiave:</strong> Guida autonoma continua con perfetto evitamento delle pareti basata esclusivamente su 3 valori di distanza.
-</div>
 
 <!--
 Presenter Notes:
 - Spiegare la motivazione: perché le telecamere non sono sempre necessarie per la navigazione su tracciati.
 - Evidenziare il behavioral cloning: apprendere la politica di guida da un pilota umano esperto.
 - Menzionare il design distribuito: mantenere leggero il payload del veicolo eseguendo il modello sul PC host via radio ad alta frequenza.
+-->
+
+---
+
+<!-- Slide 13: Demonstration Video -->
+
+## Dimostrazione di Guida Autonoma sul Tracciato
+
+<div style="text-align: center; margin-top: 6px;">
+  <video controls width="720" style="max-height: 350px; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.15); border: 2px solid #cbd5e1;" preload="metadata">
+    <source src="autopilot.mp4" type="video/mp4">
+    Il tuo browser non supporta il tag video.
+  </video>
+  <p style="font-size: 15px; color: #64748b; margin-top: 8px; font-weight: 500;">
+    <strong>Giro in pista reale</strong> senza intervento umano: la traiettoria si adatta dinamicamente alle letture in tempo reale dei 3 sensori laser.
+  </p>
+</div>
+
+<!--
+Presenter Notes:
+- Avviare il video durante l'esposizione orale.
+- Mostrare la fluidità con cui l'auto affronta le curve della pista.
+- Sottolineare che la velocità di avanzamento rimane costante mentre le correzioni di traiettoria avvengono in tempo reale.
 -->
 
 ---
@@ -205,9 +262,9 @@ Presenter Notes:
 <div class="grid-2">
   <div>
     <ul>
-      <li><strong>Guida a trazione differenziale:</strong> Due motori DC indipendenti con riduzione e ruota libera.</li>
-      <li><strong>Array frontale di sensori:</strong> 3× sensori laser Time-of-Flight (ToF) disposti a ventaglio per un ampio cono visivo. I sensori usano il protocollo I2C che semplifica il cablaggio.</li>
-      <li><strong>Alimentazione a batteria:</strong> Alimentazione motori ad alta corrente separata dall'alimentazione logica a 3.3V.</li>
+      <li><strong>Guida a trazione differenziale:</strong> Due motori DC 12V indipendenti con riduzione e ruota libera.</li>
+      <li><strong>Array frontale di sensori:</strong> 3x sensori laser Time-of-Flight (ToF) disposti a ventaglio per un ampio cono visivo. I sensori usano il protocollo I2C che semplifica il cablaggio.</li>
+      <li><strong>Alimentazione a batteria:</strong> Alimentazione motori ad alta corrente separata dall'alimentazione logica a 5V / 3.3V.</li>
     </ul>
   </div>
   <div style="text-align: center;">
@@ -319,20 +376,20 @@ Presenter Notes:
 
 <!-- Slide 7: Perception Layer - Time-of-Flight Sensors -->
 
-## Percezione: 3× Sensori ToF Laser VL53L0X
+## Sensori: 3 sensori ToF Laser VL53L0X
 
 <div class="grid-2">
   <div>
     <ul>
-      <li><strong>Precisione Millimetrica:</strong> Misurazione ottica a impulsi laser infrarossi (immune a falsi echi acustici o colori della parete).</li>
-      <li><strong>Disposizione Angolare a Ventaglio:</strong>
+      <li><strong>Alta precisione:</strong> misurazione ottica a impulsi laser infrarossi (immune a falsi echi acustici o colori della parete).</li>
+      <li><strong>Disposizione a ventaglio:</strong>
         <ul>
           <li><strong>Sinistro:</strong> Angolato verso l'esterno a ~35°–45°</li>
           <li><strong>Centrale:</strong> Rivolto dritto in avanti (0°)</li>
           <li><strong>Destro:</strong> Angolato verso l'esterno a ~35°–45°</li>
         </ul>
       </li>
-      <li><strong>Inizializzazione Dinamica Sequenziale I2C:</strong>
+      <li><strong>Inizializzazione dispositivi I2C:</strong>
         <ul>
           <li>Tutti i sensori si avviano con l'indirizzo predefinito <code>0x29</code>.</li>
           <li>L'ESP32 porta i pin XSHUT a livello LOW tenendoli in reset.</li>
@@ -361,11 +418,10 @@ Presenter Notes:
 <div class="grid-2" style="grid-template-columns: 1.15fr 0.85fr; gap: 24px; align-items: center;">
   <div>
     <ul>
-      <li><strong>RF 2.4 GHz Connectionless:</strong> Protocollo a livello MAC senza router o AP.</li>
-      <li><strong>Latenza Ultra-Bassa (&lt;3 ms):</strong> Ciclo chiuso deterministico a <strong>50 Hz</strong>.</li>
-      <li><strong>Uplink (Auto ➔ PC):</strong> Distanze 3× ToF in tempo reale <code>[sx, centro, dx]</code>.</li>
-      <li><strong>Downlink (PC ➔ Auto):</strong> Comandi di sterzata e duty cycle PWM.</li>
-      <li><strong>Zero Disconnessioni:</strong> Link diretto peer-to-peer immune da interferenze Wi-Fi.</li>
+      <li><strong>Protocollo RF 2.4 GHz:</strong> a livello MAC senza router o AP.</li>
+      <li><strong>Uplink (Auto ➔ PC):</strong> Distanze 3x ToF in tempo reale <code>[sx, centro, dx]</code>.</li>
+      <li><strong>Downlink (PC ➔ Auto):</strong>Comandi di sterzata e duty cycle PWM.</li>
+      <li><strong>Zero Disconnessioni:</strong> Collegamento diretto wireless senza interferenze Wi-Fi.</li>
     </ul>
   </div>
 
@@ -375,16 +431,13 @@ Presenter Notes:
       <div style="font-size: 14px; font-weight: 700; color: #1e40af;">Dongle PC (Seriale USB)</div>
       <div style="font-size: 12px; color: #64748b;">ESP32 DevKit v1</div>
     </div>
-
     <div class="card" style="text-align: center; background: #f0fdf4; border: 1.5px solid #86efac; padding: 8px 10px; margin-bottom: 0;">
-      <div style="font-size: 18px; color: #10b981; line-height: 1;">⇅</div>
-      <strong style="color: #15803d; font-size: 13px;">📡 Protocollo ESP-NOW 2.4 GHz</strong>
-      <div style="font-size: 11px; color: #047857; margin-top: 2px;">Latenza &lt;3 ms • Zero router • Ciclo 50 Hz</div>
+      <strong style="color: #15803d; font-size: 13px;">⇅ 📡 Protocollo ESP-NOW 2.4 GHz</strong>
+      <div style="font-size: 11px; color: #047857; margin-top: 2px;">Bassa latenza (3 ms) e senza router Wi-Fi</div>
     </div>
-
     <div class="card" style="text-align: center; padding: 10px 12px; margin-bottom: 0;">
       <img src="lolin32.jpg" alt="MCU Auto LOLIN32" class="card-node-img" height="110" />
-      <div style="font-size: 14px; font-weight: 700; color: #1e40af;">Nodo Veicolo (Ricevitore)</div>
+      <div style="font-size: 14px; font-weight: 700; color: #1e40af;">Microcontroller sul veicolo (ricevitore)</div>
       <div style="font-size: 12px; color: #64748b;">WEMOS LOLIN32 v1</div>
     </div>
   </div>
@@ -528,29 +581,6 @@ Presenter Notes:
 Presenter Notes:
 - Illustrare i tre livelli di sicurezza: frenata automatica di emergenza, override immediato dal joystick e protezione da perdita del segnale.
 - Questa architettura garantisce test sicuri senza danneggiare il veicolo contro le pareti.
--->
-
----
-
-<!-- Slide 13: Demonstration Video -->
-
-## Dimostrazione di Guida Autonoma sul Tracciato
-
-<div style="text-align: center; margin-top: 6px;">
-  <video controls width="720" style="max-height: 350px; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.15); border: 2px solid #cbd5e1;" preload="metadata">
-    <source src="autopilot.mp4" type="video/mp4">
-    Il tuo browser non supporta il tag video.
-  </video>
-  <p style="font-size: 15px; color: #64748b; margin-top: 8px; font-weight: 500;">
-    📹 <strong>Giro in Pista Reale:</strong> Zero intervento umano — la traiettoria si adatta dinamicamente alle letture in tempo reale dei 3 sensori ToF.
-  </p>
-</div>
-
-<!--
-Presenter Notes:
-- Avviare il video durante l'esposizione orale.
-- Mostrare la fluidità con cui l'auto affronta le curve della pista.
-- Sottolineare che la velocità di avanzamento rimane costante mentre le correzioni di traiettoria avvengono in tempo reale.
 -->
 
 ---
