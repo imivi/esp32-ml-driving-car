@@ -7,28 +7,28 @@ transition: slide
 style: |
   section {
     font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
-    font-size: 19px;
-    padding: 30px 50px;
+    font-size: 22px;
+    padding: 24px 44px;
     background-color: #f8fafc;
     color: #1e293b;
-    line-height: 1.45;
+    line-height: 1.4;
   }
   h1 {
     color: #1e3a8a;
-    font-size: 38px;
+    font-size: 42px;
     margin-bottom: 8px;
   }
   h2 {
     color: #1e40af;
-    font-size: 26px;
+    font-size: 30px;
     border-bottom: 2px solid #3b82f6;
     padding-bottom: 6px;
     margin-top: 0;
-    margin-bottom: 16px;
+    margin-bottom: 14px;
   }
   h3 {
     color: #2563eb;
-    font-size: 19px;
+    font-size: 22px;
     margin-top: 0;
     margin-bottom: 6px;
   }
@@ -36,13 +36,13 @@ style: |
     color: #0f172a;
   }
   ul {
-    margin-top: 4px;
-    margin-bottom: 8px;
-    line-height: 1.45;
+    margin-top: 3px;
+    margin-bottom: 6px;
+    line-height: 1.38;
     padding-left: 24px;
   }
   li {
-    margin-bottom: 6px;
+    margin-bottom: 5px;
   }
   .tag {
     display: inline-block;
