@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESP32 RC Car - Simulatore 3D Tracciato & Radar</title>
+  <!-- Three.js and OrbitControls via CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+    body {
+      background: #f1f5f9;
+      color: #0f172a;
+      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+    }
+    #webgl-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    /* Top Title HUD */
+    .hud-top {
+      position: absolute;
+      top: 18px;
+      left: 24px;
+      right: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      pointer-events: none;
+    }
+    .hud-title-box {
+      background: rgba(255, 255, 255, 0.92);
+      border: 1.5px solid #cbd5e1;
+      border-radius: 12px;
+      padding: 12px 20px;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+      pointer-events: auto;
+    }
+    .hud-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #1e3a8a;
+      letter-spacing: 0.3px;
+      margin-bottom: 2px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .hud-sub {
+      font-size: 12px;
+      color: #64748b;
+    }
+
+    /* View Presets */
+    .hud-views {
+      display: flex;
+      gap: 8px;
+      pointer-events: auto;
+    }
+    .btn-view {
+      background: rgba(255, 255, 255, 0.92);
+      border: 1.5px solid #cbd5e1;
+      color: #334155;
+      padding: 7px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+      transition: all 0.15s ease;
+    }
+    .btn-view:hover {
+      background: #eff6ff;
+      color: #1d4ed8;
+      border-color: #3b82f6;
+    }
+    .btn-view.active {
+      background: #1e40af;
+      color: #ffffff;
+      border-color: #1e40af;
+    }
+
+    /* Telemetry metrics widget */
+    .telemetry-card {
+      position: absolute;
+      left: 24px;
+      bottom: 110px;
+      background: rgba(255, 255, 255, 0.94);
+      border: 1.5px solid #cbd5e1;
+      border-radius: 12px;
+      padding: 14px 18px;
+      min-width: 240px;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 6px 20px rgba(0,0,0,0.08);
+      pointer-events: none;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .telemetry-card-title {
+      color: #475569;
+      font-size: 11px;
+      margin-bottom: 6px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      border-bottom: 1px solid #e2e8f0;
+      padding-bottom: 4px;
+    }
+    .val-row {
+      display: flex;
+      justify-content: space-between;
+      font-family: monospace;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+    .val-left { color: #0284c7; }
+    .val-center { color: #16a34a; }
+    .val-right { color: #dc2626; }
+    .val-steer { color: #d97706; }
+
+    .hud-badge {
+      display: block;
+      margin-top: 10px;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-family: monospace;
+      font-size: 13px;
+      font-weight: 700;
+      text-align: center;
+      letter-spacing: 0.8px;
+      background: #f0fdf4;
+      border: 1.5px solid #86efac;
+      color: #15803d;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+      transition: all 0.2s ease;
+    }
+
+    /* Bottom Control Bar */
+    .player-controls {
+      position: absolute;
+      bottom: 20px;
+      left: 24px;
+      right: 24px;
+      background: rgba(255, 255, 255, 0.95);
+      border: 1.5px solid #cbd5e1;
+      border-radius: 14px;
+      padding: 12px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+    }
+    .timeline-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .timeline-slider {
+      flex: 1;
+      -webkit-appearance: none;
+      height: 8px;
+      border-radius: 4px;
+      background: #e2e8f0;
+      outline: none;
+      cursor: pointer;
+    }
+    .timeline-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #2563eb;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(37, 99, 235, 0.5);
+      transition: transform 0.1s;
+    }
+    .timeline-slider::-webkit-slider-thumb:hover {
+      transform: scale(1.2);
+    }
+    .time-label {
+      font-family: monospace;
+      font-size: 13px;
+      font-weight: 600;
+      color: #475569;
+      min-width: 95px;
+      text-align: right;
+    }
+    .buttons-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .btn-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .control-btn {
+      background: #ffffff;
+      border: 1.5px solid #cbd5e1;
+      color: #1e293b;
+      padding: 7px 15px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .control-btn:hover {
+      background: #f8fafc;
+      border-color: #94a3b8;
+      color: #0f172a;
+    }
+    .control-btn.active {
+      background: #2563eb;
+      border-color: #2563eb;
+      color: #ffffff;
+    }
+    .speed-select {
+      background: #ffffff;
+      border: 1.5px solid #cbd5e1;
+      color: #1e293b;
+      padding: 6px 10px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      outline: none;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- WebGL Canvas Container -->
+  <div id="webgl-canvas"></div>
+
+  <!-- Top Title HUD -->
+  <div class="hud-top">
+    <div class="hud-title-box">
+      <div class="hud-title">🚗 ESP32 RC Car • Simulatore Tracciato 3D</div>
+      <div class="hud-sub">Visualizzazione egocentrica con pareti del tracciato dinamiche e telemetria ToF</div>
+    </div>
+    <div class="hud-views">
+      <button id="btn-view-chase" class="btn-view active" onclick="setCameraView('chase')">Inseguimento 3D</button>
+      <button id="btn-view-top" class="btn-view" onclick="setCameraView('top')">Vista Top-Down 2D</button>
+      <button id="btn-view-front" class="btn-view" onclick="setCameraView('front')">Muso Auto</button>
+    </div>
+  </div>
+
+  <!-- Telemetry HUD Card -->
+  <div class="telemetry-card">
+    <div class="telemetry-card-title">Telemetria Laser ToF</div>
+    <div class="val-row"><span>Laser Sinistro (40°):</span> <span id="txt-left" class="val-left">--- mm</span></div>
+    <div class="val-row"><span>Laser Centro (0°):</span>    <span id="txt-center" class="val-center">--- mm</span></div>
+    <div class="val-row"><span>Laser Destro (-40°):</span>  <span id="txt-right" class="val-right">--- mm</span></div>
+    <div class="val-row" style="margin-top: 6px; border-top: 1px dashed #e2e8f0; padding-top: 6px;">
+      <span>Sterzo Joystick:</span> <span id="txt-steer" class="val-steer">0.00</span>
+    </div>
+    <span id="badge-direction" class="hud-badge">FORWARD</span>
+  </div>
+
+  <!-- Bottom Player Controls -->
+  <div class="player-controls">
+    <div class="timeline-row">
+      <input type="range" id="timeline" class="timeline-slider" min="0" max="1510" value="0">
+      <div id="time-display" class="time-label">0.0s / 0.0s</div>
+    </div>
+    <div class="buttons-row">
+      <div class="btn-group">
+        <button id="btn-play" class="control-btn" onclick="togglePlay()">⏸ Pausa</button>
+        <button class="control-btn" onclick="seekFrame(0)">⏮ Reset</button>
+        <button class="control-btn" onclick="stepFrame(-1)">◀ Frame</button>
+        <button class="control-btn" onclick="stepFrame(1)">Frame ▶</button>
+      </div>
+      <div class="btn-group">
+        <label for="speed-select" style="font-size: 13px; color: #475569; font-weight: 600;">Velocità:</label>
+        <select id="speed-select" class="speed-select" onchange="setSpeed(this.value)">
+          <option value="0.5">0.5x</option>
+          <option value="1.0" selected>1.0x (Tempo Reale)</option>
+          <option value="1.5">1.5x</option>
+          <option value="2.0">2.0x</option>
+          <option value="3.0">3.0x</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Embedded Telemetry Records: [dl, dc, dr, steer, direction]
+    const telemetryData = [[259, 909, 329, 0.0, "FORWARD"], [257, 909, 339, -0.003, "FORWARD"], [260, 897, 338, -0.018, "FORWARD"], [263, 859, 346, -0.018, "FORWARD"], [263, 845, 352, 0.0, "FORWARD"], [260, 858, 346, 0.148, "FORWARD"], [256, 836, 348, 0.148, "FORWARD"], [260, 834, 345, 0.148, "FORWARD"], [261, 812, 344, 0.13, "FORWARD"], [262, 787, 330, 0.107, "FORWARD"], [279, 793, 338, 0.074, "FORWARD"], [292, 780, 336, 0.085, "FORWARD"], [320, 749, 330, 0.085, "FORWARD"], [424, 741, 332, 0.085, "FORWARD"], [658, 736, 334, 0.085, "FORWARD"], [758, 709, 331, 0.0, "FORWARD"], [890, 711, 327, 0.0, "FORWARD"], [886, 692, 330, -0.062, "FORWARD"], [873, 677, 329, -0.111, "FORWARD"], [852, 651, 327, -0.111, "FORWARD"], [878, 633, 339, -0.111, "FORWARD"], [860, 622, 341, -0.148, "FORWARD"], [841, 612, 343, -0.148, "FORWARD"], [813, 595, 336, -0.245, "FORWARD_LEFT"], [827, 597, 340, -0.279, "FORWARD_LEFT"], [773, 563, 349, -0.302, "FORWARD_LEFT"], [772, 564, 351, -0.552, "FORWARD_LEFT"], [770, 554, 360, -0.6, "FORWARD_LEFT"], [736, 532, 366, -0.604, "FORWARD_LEFT"], [738, 528, 365, -0.604, "FORWARD_LEFT"], [754, 520, 386, -0.768, "FORWARD_LEFT"], [761, 507, 409, -0.828, "FORWARD_LEFT"], [752, 507, 424, -0.854, "FORWARD_LEFT"], [767, 502, 464, -0.858, "FORWARD_LEFT"], [810, 500, 505, -0.776, "FORWARD_LEFT"], [795, 494, 516, -0.776, "FORWARD_LEFT"], [832, 505, 537, -0.787, "FORWARD_LEFT"], [858, 496, 566, -0.694, "FORWARD_LEFT"], [940, 495, 544, -0.507, "FORWARD_LEFT"], [933, 495, 546, -0.567, "FORWARD_LEFT"], [959, 485, 535, -0.615, "FORWARD_LEFT"], [963, 487, 512, -0.604, "FORWARD_LEFT"], [985, 484, 510, -0.604, "FORWARD_LEFT"], [1036, 471, 484, -0.742, "FORWARD_LEFT"], [1039, 471, 469, -0.836, "FORWARD_LEFT"], [1149, 474, 467, -0.843, "FORWARD_LEFT"], [1212, 482, 439, -0.843, "FORWARD_LEFT"], [1300, 495, 441, -0.843, "FORWARD_LEFT"], [1300, 486, 441, -0.746, "FORWARD_LEFT"], [1300, 499, 430, -0.742, "FORWARD_LEFT"], [1300, 517, 415, -0.742, "FORWARD_LEFT"], [1300, 494, 419, -0.664, "FORWARD_LEFT"], [1300, 512, 411, -0.548, "FORWARD_LEFT"], [1300, 511, 410, -0.544, "FORWARD_LEFT"], [1300, 510, 412, -0.488, "FORWARD_LEFT"], [1300, 514, 393, -0.268, "FORWARD_LEFT"], [1300, 497, 385, -0.216, "FORWARD_LEFT"], [1300, 486, 381, -0.216, "FORWARD_LEFT"], [1300, 469, 364, -0.216, "FORWARD_LEFT"], [1300, 464, 363, -0.41, "FORWARD_LEFT"], [1300, 441, 358, -0.451, "FORWARD_LEFT"], [1300, 439, 336, -0.451, "FORWARD_LEFT"], [1300, 438, 333, -0.548, "FORWARD_LEFT"], [1300, 426, 321, -0.731, "FORWARD_LEFT"], [1300, 423, 314, -0.742, "FORWARD_LEFT"], [1244, 425, 310, -0.742, "FORWARD_LEFT"], [1161, 434, 311, -0.742, "FORWARD_LEFT"], [1002, 454, 315, -0.742, "FORWARD_LEFT"], [852, 464, 315, -0.742, "FORWARD_LEFT"], [760, 471, 312, -0.742, "FORWARD_LEFT"], [610, 509, 319, -0.742, "FORWARD_LEFT"], [580, 516, 319, -0.742, "FORWARD_LEFT"], [510, 529, 324, -0.742, "FORWARD_LEFT"], [479, 560, 322, -0.742, "FORWARD_LEFT"], [447, 558, 327, -0.72, "FORWARD_LEFT"], [397, 588, 333, -0.709, "FORWARD_LEFT"], [381, 657, 329, -0.537, "FORWARD_LEFT"], [367, 672, 313, -0.245, "FORWARD_LEFT"], [326, 711, 319, -0.197, "FORWARD_LEFT"], [330, 743, 318, -0.189, "FORWARD_LEFT"], [331, 728, 304, -0.189, "FORWARD_LEFT"], [334, 673, 300, -0.189, "FORWARD_LEFT"], [336, 702, 294, -0.201, "FORWARD_LEFT"], [351, 705, 296, -0.354, "FORWARD_LEFT"], [348, 703, 290, -0.376, "FORWARD_LEFT"], [337, 707, 282, -0.387, "FORWARD_LEFT"], [352, 716, 283, -0.387, "FORWARD_LEFT"], [350, 728, 281, -0.402, "FORWARD_LEFT"], [350, 765, 275, -0.511, "FORWARD_LEFT"], [341, 736, 272, -0.511, "FORWARD_LEFT"], [329, 806, 279, -0.544, "FORWARD_LEFT"], [329, 850, 285, -0.556, "FORWARD_LEFT"], [312, 895, 286, -0.556, "FORWARD_LEFT"], [283, 941, 291, -0.556, "FORWARD_LEFT"], [276, 963, 292, -0.503, "FORWARD_LEFT"], [269, 962, 301, -0.436, "FORWARD_LEFT"], [263, 975, 308, -0.436, "FORWARD_LEFT"], [253, 946, 305, -0.283, "FORWARD_LEFT"], [243, 947, 311, -0.014, "FORWARD"], [240, 922, 316, 0.0, "FORWARD"], [240, 913, 319, 0.0, "FORWARD"], [239, 928, 316, 0.0, "FORWARD"], [237, 913, 307, 0.0, "FORWARD"], [239, 884, 304, 0.0, "FORWARD"], [239, 881, 299, 0.0, "FORWARD"], [244, 848, 296, -0.145, "FORWARD"], [239, 839, 300, -0.145, "FORWARD"], [236, 837, 302, -0.145, "FORWARD"], [232, 794, 300, -0.145, "FORWARD"], [229, 797, 296, -0.145, "FORWARD"], [230, 781, 295, -0.145, "FORWARD"], [224, 765, 290, -0.145, "FORWARD"], [224, 764, 291, -0.137, "FORWARD"], [227, 759, 290, -0.126, "FORWARD"], [219, 725, 290, -0.126, "FORWARD"], [216, 723, 289, -0.13, "FORWARD"], [215, 684, 284, -0.118, "FORWARD"], [210, 685, 287, -0.118, "FORWARD"], [206, 673, 285, -0.13, "FORWARD"], [209, 656, 286, -0.13, "FORWARD"], [212, 638, 278, -0.13, "FORWARD"], [226, 631, 280, -0.163, "FORWARD_LEFT"], [305, 609, 283, -0.175, "FORWARD_LEFT"], [729, 597, 278, -0.175, "FORWARD_LEFT"], [941, 600, 279, -0.219, "FORWARD_LEFT"], [998, 586, 275, -0.287, "FORWARD_LEFT"], [996, 560, 279, -0.287, "FORWARD_LEFT"], [995, 552, 280, -0.287, "FORWARD_LEFT"], [1300, 551, 284, -0.417, "FORWARD_LEFT"], [994, 535, 285, -0.417, "FORWARD_LEFT"], [972, 517, 285, -0.417, "FORWARD_LEFT"], [981, 511, 287, -0.417, "FORWARD_LEFT"], [942, 497, 296, -0.417, "FORWARD_LEFT"], [940, 478, 299, -0.417, "FORWARD_LEFT"], [967, 480, 300, -0.417, "FORWARD_LEFT"], [925, 465, 297, -0.511, "FORWARD_LEFT"], [958, 455, 307, -0.615, "FORWARD_LEFT"], [943, 457, 309, -0.612, "FORWARD_LEFT"], [994, 438, 317, -0.619, "FORWARD_LEFT"], [1023, 433, 335, -0.619, "FORWARD_LEFT"], [957, 435, 338, -0.63, "FORWARD_LEFT"], [1040, 431, 363, -0.63, "FORWARD_LEFT"], [1300, 427, 371, -0.63, "FORWARD_LEFT"], [1213, 430, 384, -0.63, "FORWARD_LEFT"], [1101, 421, 393, -0.63, "FORWARD_LEFT"], [1187, 415, 398, -0.63, "FORWARD_LEFT"], [1300, 413, 399, -0.63, "FORWARD_LEFT"], [1300, 413, 385, -0.63, "FORWARD_LEFT"], [1300, 411, 380, -0.63, "FORWARD_LEFT"], [1300, 406, 377, -0.63, "FORWARD_LEFT"], [1300, 408, 358, -0.63, "FORWARD_LEFT"], [1300, 406, 354, -0.597, "FORWARD_LEFT"], [1300, 407, 341, -0.593, "FORWARD_LEFT"], [1300, 411, 336, -0.593, "FORWARD_LEFT"], [1300, 411, 326, -0.593, "FORWARD_LEFT"], [1300, 413, 319, -0.529, "FORWARD_LEFT"], [1300, 417, 310, -0.518, "FORWARD_LEFT"], [1300, 418, 306, -0.518, "FORWARD_LEFT"], [1300, 419, 298, -0.507, "FORWARD_LEFT"], [1300, 414, 294, -0.507, "FORWARD_LEFT"], [1300, 410, 288, -0.507, "FORWARD_LEFT"], [1300, 410, 283, -0.507, "FORWARD_LEFT"], [1300, 412, 278, -0.507, "FORWARD_LEFT"], [1300, 408, 266, -0.507, "FORWARD_LEFT"], [1300, 410, 260, -0.615, "FORWARD_LEFT"], [1300, 415, 255, -0.604, "FORWARD_LEFT"], [1300, 406, 252, -0.604, "FORWARD_LEFT"], [1300, 419, 250, -0.604, "FORWARD_LEFT"], [1300, 433, 248, -0.604, "FORWARD_LEFT"], [1300, 445, 245, -0.604, "FORWARD_LEFT"], [1300, 445, 243, -0.615, "FORWARD_LEFT"], [1300, 462, 239, -0.137, "FORWARD"], [1223, 475, 238, -0.018, "FORWARD"], [1300, 472, 238, -0.018, "FORWARD"], [1249, 479, 225, -0.018, "FORWARD"], [1267, 450, 222, -0.118, "FORWARD"], [1300, 438, 217, -0.201, "FORWARD_LEFT"], [1300, 440, 204, -0.227, "FORWARD_LEFT"], [1300, 408, 203, -0.238, "FORWARD_LEFT"], [1300, 406, 191, -0.287, "FORWARD_LEFT"], [1300, 403, 185, -0.365, "FORWARD_LEFT"], [1300, 400, 179, -0.387, "FORWARD_LEFT"], [1300, 386, 175, -0.399, "FORWARD_LEFT"], [1263, 383, 167, -0.41, "FORWARD_LEFT"], [1300, 390, 166, -0.41, "FORWARD_LEFT"], [1191, 404, 160, -0.41, "FORWARD_LEFT"], [1152, 407, 158, -0.41, "FORWARD_LEFT"], [1096, 391, 158, -0.41, "FORWARD_LEFT"], [1137, 396, 150, -0.41, "FORWARD_LEFT"], [1089, 394, 147, -0.41, "FORWARD_LEFT"], [1144, 395, 144, -0.41, "FORWARD_LEFT"], [1085, 396, 138, -0.41, "FORWARD_LEFT"], [1068, 392, 137, -0.41, "FORWARD_LEFT"], [1039, 401, 134, -0.41, "FORWARD_LEFT"], [1039, 401, 133, -0.41, "FORWARD_LEFT"], [1028, 394, 131, -0.41, "FORWARD_LEFT"], [971, 410, 132, -0.41, "FORWARD_LEFT"], [969, 425, 126, -0.686, "FORWARD_LEFT"], [991, 427, 126, -0.742, "FORWARD_LEFT"], [973, 443, 126, -0.757, "FORWARD_LEFT"], [759, 522, 135, -0.753, "FORWARD_LEFT"], [707, 642, 143, -0.753, "FORWARD_LEFT"], [636, 754, 149, -0.753, "FORWARD_LEFT"], [613, 957, 157, -0.753, "FORWARD_LEFT"], [582, 1024, 163, -0.753, "FORWARD_LEFT"], [567, 1053, 173, -0.753, "FORWARD_LEFT"], [536, 1115, 187, -0.742, "FORWARD_LEFT"], [516, 1131, 192, -0.548, "FORWARD_LEFT"], [485, 1151, 210, -0.541, "FORWARD_LEFT"], [467, 1102, 221, -0.541, "FORWARD_LEFT"], [452, 1112, 232, -0.496, "FORWARD_LEFT"], [447, 1102, 232, -0.283, "FORWARD_LEFT"], [439, 1074, 238, -0.283, "FORWARD_LEFT"], [441, 1048, 245, -0.283, "FORWARD_LEFT"], [438, 1072, 253, -0.533, "FORWARD_LEFT"], [435, 1032, 258, -0.552, "FORWARD_LEFT"], [431, 1019, 267, -0.552, "FORWARD_LEFT"], [427, 1022, 270, -0.552, "FORWARD_LEFT"], [410, 1013, 291, -0.186, "FORWARD_LEFT"], [399, 995, 296, -0.051, "FORWARD"], [397, 1018, 306, -0.04, "FORWARD"], [400, 977, 315, -0.018, "FORWARD"], [392, 982, 323, -0.018, "FORWARD"], [392, 959, 323, -0.018, "FORWARD"], [389, 958, 337, 0.036, "FORWARD"], [382, 936, 349, 0.189, "FORWARD_RIGHT"], [380, 941, 350, 0.201, "FORWARD_RIGHT"], [386, 901, 349, 0.201, "FORWARD_RIGHT"], [382, 884, 353, 0.458, "FORWARD_RIGHT"], [383, 874, 353, 0.458, "FORWARD_RIGHT"], [383, 864, 353, 0.458, "FORWARD_RIGHT"], [385, 852, 343, 0.458, "FORWARD_RIGHT"], [393, 838, 336, 0.458, "FORWARD_RIGHT"], [417, 825, 305, 0.458, "FORWARD_RIGHT"], [435, 809, 300, 0.458, "FORWARD_RIGHT"], [446, 793, 293, 0.0, "FORWARD"], [525, 788, 274, -0.133, "FORWARD"], [533, 787, 277, -0.29, "FORWARD_LEFT"], [567, 755, 277, -0.324, "FORWARD_LEFT"], [575, 741, 283, -0.324, "FORWARD_LEFT"], [581, 738, 280, 0.0, "FORWARD"], [621, 726, 278, 0.0, "FORWARD"], [721, 705, 277, 0.0, "FORWARD"], [810, 699, 283, 0.0, "FORWARD"], [923, 696, 282, -0.133, "FORWARD"], [969, 681, 284, -0.245, "FORWARD_LEFT"], [988, 668, 281, -0.309, "FORWARD_LEFT"], [975, 644, 287, -0.582, "FORWARD_LEFT"], [981, 620, 292, -0.597, "FORWARD_LEFT"], [961, 620, 295, -0.6, "FORWARD_LEFT"], [925, 608, 298, -0.6, "FORWARD_LEFT"], [967, 614, 307, -0.612, "FORWARD_LEFT"], [1018, 594, 327, -0.612, "FORWARD_LEFT"], [1001, 596, 327, -0.612, "FORWARD_LEFT"], [1026, 581, 340, -0.612, "FORWARD_LEFT"], [976, 577, 353, -0.612, "FORWARD_LEFT"], [1033, 571, 370, -0.612, "FORWARD_LEFT"], [995, 570, 388, -0.612, "FORWARD_LEFT"], [1018, 575, 395, -0.612, "FORWARD_LEFT"], [1049, 565, 416, -0.612, "FORWARD_LEFT"], [1005, 555, 442, -0.223, "FORWARD_LEFT"], [1036, 543, 445, -0.167, "FORWARD_LEFT"], [1067, 546, 461, -0.156, "FORWARD_LEFT"], [1300, 532, 489, -0.156, "FORWARD_LEFT"], [1120, 523, 489, -0.156, "FORWARD_LEFT"], [1072, 511, 489, -0.167, "FORWARD_LEFT"], [1075, 502, 501, -0.26, "FORWARD_LEFT"], [1081, 486, 487, -0.249, "FORWARD_LEFT"], [1046, 476, 494, -0.238, "FORWARD_LEFT"], [1004, 455, 503, -0.238, "FORWARD_LEFT"], [1032, 447, 493, -0.264, "FORWARD_LEFT"], [1009, 441, 491, -0.279, "FORWARD_LEFT"], [961, 422, 471, -0.302, "FORWARD_LEFT"], [945, 410, 465, -0.473, "FORWARD_LEFT"], [971, 408, 457, -0.552, "FORWARD_LEFT"], [945, 386, 422, -0.552, "FORWARD_LEFT"], [989, 384, 417, -0.552, "FORWARD_LEFT"], [1008, 372, 403, -0.552, "FORWARD_LEFT"], [999, 360, 375, -0.552, "FORWARD_LEFT"], [1027, 355, 366, -0.552, "FORWARD_LEFT"], [1102, 355, 347, -0.552, "FORWARD_LEFT"], [1229, 352, 335, -0.552, "FORWARD_LEFT"], [1250, 350, 326, -0.563, "FORWARD_LEFT"], [1300, 342, 316, -0.563, "FORWARD_LEFT"], [1252, 339, 303, -0.563, "FORWARD_LEFT"], [1300, 336, 296, -0.563, "FORWARD_LEFT"], [1300, 332, 282, -0.604, "FORWARD_LEFT"], [1300, 324, 277, -0.686, "FORWARD_LEFT"], [1300, 325, 264, -0.731, "FORWARD_LEFT"], [1300, 328, 260, -0.772, "FORWARD_LEFT"], [1300, 333, 253, -0.899, "FORWARD_LEFT"], [1300, 343, 245, -0.963, "FORWARD_LEFT"], [1300, 348, 248, -0.974, "FORWARD_LEFT"], [1300, 361, 249, -0.974, "FORWARD_LEFT"], [1300, 366, 247, -0.963, "FORWARD_LEFT"], [1300, 372, 246, -0.757, "FORWARD_LEFT"], [1300, 385, 245, -0.608, "FORWARD_LEFT"], [1300, 402, 247, -0.417, "FORWARD_LEFT"], [1300, 418, 245, -0.305, "FORWARD_LEFT"], [1206, 422, 241, -0.316, "FORWARD_LEFT"], [1179, 423, 239, -0.514, "FORWARD_LEFT"], [1139, 419, 233, -0.593, "FORWARD_LEFT"], [1156, 405, 225, -0.731, "FORWARD_LEFT"], [1167, 410, 222, -0.753, "FORWARD_LEFT"], [993, 430, 219, -0.753, "FORWARD_LEFT"], [805, 476, 227, -0.75, "FORWARD_LEFT"], [701, 495, 228, -0.75, "FORWARD_LEFT"], [642, 508, 226, -0.75, "FORWARD_LEFT"], [561, 570, 230, -0.75, "FORWARD_LEFT"], [522, 588, 236, -0.761, "FORWARD_LEFT"], [467, 597, 242, -0.761, "FORWARD_LEFT"], [439, 674, 247, -0.761, "FORWARD_LEFT"], [425, 685, 245, -0.761, "FORWARD_LEFT"], [381, 786, 262, -0.451, "FORWARD_LEFT"], [361, 909, 265, -0.141, "FORWARD"], [347, 965, 270, -0.145, "FORWARD"], [333, 1023, 272, -0.145, "FORWARD"], [335, 1013, 274, -0.231, "FORWARD_LEFT"], [339, 997, 271, -0.29, "FORWARD_LEFT"], [346, 993, 266, -0.552, "FORWARD_LEFT"], [341, 1018, 265, -0.664, "FORWARD_LEFT"], [346, 1045, 270, -0.716, "FORWARD_LEFT"], [337, 1070, 281, -0.727, "FORWARD_LEFT"], [317, 1141, 285, -0.727, "FORWARD_LEFT"], [291, 1146, 291, -0.716, "FORWARD_LEFT"], [271, 1111, 322, -0.716, "FORWARD_LEFT"], [261, 1113, 324, -0.615, "FORWARD_LEFT"], [246, 1150, 341, 0.0, "FORWARD"], [231, 1099, 375, 0.0, "FORWARD"], [229, 1091, 376, 0.077, "FORWARD"], [232, 1111, 368, 0.077, "FORWARD"], [236, 1070, 371, 0.089, "FORWARD"], [235, 1044, 374, 0.092, "FORWARD"], [232, 1026, 373, 0.081, "FORWARD"], [236, 1011, 359, 0.081, "FORWARD"], [237, 1035, 368, 0.092, "FORWARD"], [238, 1003, 362, 0.092, "FORWARD"], [242, 971, 359, 0.092, "FORWARD"], [246, 957, 362, 0.092, "FORWARD"], [245, 969, 356, 0.092, "FORWARD"], [252, 932, 360, 0.13, "FORWARD"], [251, 947, 360, 0.208, "FORWARD_RIGHT"], [251, 922, 359, 0.343, "FORWARD_RIGHT"], [260, 896, 353, 0.343, "FORWARD_RIGHT"], [260, 889, 356, 0.343, "FORWARD_RIGHT"], [266, 880, 356, 0.343, "FORWARD_RIGHT"], [281, 857, 351, 0.343, "FORWARD_RIGHT"], [286, 852, 338, 0.466, "FORWARD_RIGHT"], [294, 840, 336, 0.567, "FORWARD_RIGHT"], [307, 837, 318, 0.578, "FORWARD_RIGHT"], [330, 829, 311, 0.641, "FORWARD_RIGHT"], [345, 820, 302, 0.641, "FORWARD_RIGHT"], [450, 801, 276, 0.641, "FORWARD_RIGHT"], [559, 796, 273, 0.641, "FORWARD_RIGHT"], [656, 753, 261, 0.641, "FORWARD_RIGHT"], [876, 711, 238, 0.272, "FORWARD_RIGHT"], [875, 655, 230, 0.182, "FORWARD_RIGHT"], [861, 651, 224, 0.115, "FORWARD"], [840, 595, 221, 0.1, "FORWARD"], [846, 595, 218, 0.085, "FORWARD"], [805, 577, 216, 0.0, "FORWARD"], [799, 556, 199, -0.26, "FORWARD_LEFT"], [773, 529, 195, -0.26, "FORWARD_LEFT"], [765, 536, 194, -0.26, "FORWARD_LEFT"], [751, 518, 184, -0.26, "FORWARD_LEFT"], [744, 522, 183, -0.249, "FORWARD_LEFT"], [745, 522, 181, -0.249, "FORWARD_LEFT"], [722, 532, 170, -0.249, "FORWARD_LEFT"], [713, 512, 171, -0.249, "FORWARD_LEFT"], [714, 532, 168, -0.249, "FORWARD_LEFT"], [705, 522, 161, -0.279, "FORWARD_LEFT"], [669, 526, 161, -0.548, "FORWARD_LEFT"], [654, 519, 154, -0.727, "FORWARD_LEFT"], [658, 505, 148, -0.776, "FORWARD_LEFT"], [636, 509, 148, -0.836, "FORWARD_LEFT"], [654, 515, 149, -0.884, "FORWARD_LEFT"], [650, 542, 152, -0.888, "FORWARD_LEFT"], [662, 530, 159, -0.899, "FORWARD_LEFT"], [658, 534, 162, -0.877, "FORWARD_LEFT"], [672, 533, 163, -0.75, "FORWARD_LEFT"], [677, 539, 172, -0.761, "FORWARD_LEFT"], [678, 538, 173, -0.832, "FORWARD_LEFT"], [672, 527, 176, -0.839, "FORWARD_LEFT"], [657, 528, 179, -0.839, "FORWARD_LEFT"], [681, 532, 184, -0.839, "FORWARD_LEFT"], [710, 507, 191, -0.839, "FORWARD_LEFT"], [727, 508, 202, -0.839, "FORWARD_LEFT"], [711, 506, 209, -0.828, "FORWARD_LEFT"], [736, 495, 227, -0.828, "FORWARD_LEFT"], [734, 494, 232, -0.828, "FORWARD_LEFT"], [781, 491, 240, -0.828, "FORWARD_LEFT"], [824, 489, 249, -0.828, "FORWARD_LEFT"], [767, 486, 255, -0.828, "FORWARD_LEFT"], [819, 484, 257, -0.832, "FORWARD_LEFT"], [824, 480, 281, -0.832, "FORWARD_LEFT"], [848, 485, 291, -0.832, "FORWARD_LEFT"], [868, 476, 303, -0.832, "FORWARD_LEFT"], [897, 473, 333, -0.832, "FORWARD_LEFT"], [873, 475, 350, -0.832, "FORWARD_LEFT"], [992, 479, 371, -0.746, "FORWARD_LEFT"], [1300, 474, 419, -0.75, "FORWARD_LEFT"], [1086, 468, 430, -0.75, "FORWARD_LEFT"], [1300, 479, 451, -0.727, "FORWARD_LEFT"], [1300, 481, 483, -0.443, "FORWARD_LEFT"], [1300, 470, 473, -0.455, "FORWARD_LEFT"], [1300, 472, 472, -0.455, "FORWARD_LEFT"], [1300, 464, 461, -0.447, "FORWARD_LEFT"], [907, 440, 444, -0.447, "FORWARD_LEFT"], [1300, 447, 438, -0.462, "FORWARD_LEFT"], [1300, 433, 414, -0.701, "FORWARD_LEFT"], [1300, 434, 410, -0.742, "FORWARD_LEFT"], [1300, 436, 395, -0.75, "FORWARD_LEFT"], [1300, 436, 386, -0.75, "FORWARD_LEFT"], [1300, 441, 382, -0.75, "FORWARD_LEFT"], [1300, 451, 377, -0.697, "FORWARD_LEFT"], [1300, 462, 367, -0.507, "FORWARD_LEFT"], [1300, 464, 360, -0.507, "FORWARD_LEFT"], [1300, 473, 356, -0.507, "FORWARD_LEFT"], [1300, 468, 346, -0.507, "FORWARD_LEFT"], [1300, 466, 337, -0.507, "FORWARD_LEFT"], [1300, 468, 334, -0.507, "FORWARD_LEFT"], [1300, 466, 324, -0.604, "FORWARD_LEFT"], [1300, 468, 325, -0.701, "FORWARD_LEFT"], [1300, 484, 315, -0.697, "FORWARD_LEFT"], [1300, 490, 305, -0.697, "FORWARD_LEFT"], [1300, 504, 302, -0.697, "FORWARD_LEFT"], [487, 505, 300, -0.697, "FORWARD_LEFT"], [393, 539, 303, -0.686, "FORWARD_LEFT"], [376, 551, 304, -0.686, "FORWARD_LEFT"], [342, 573, 307, -0.593, "FORWARD_LEFT"], [299, 623, 306, -0.541, "FORWARD_LEFT"], [281, 672, 306, -0.537, "FORWARD_LEFT"], [261, 638, 312, -0.537, "FORWARD_LEFT"], [257, 674, 305, -0.537, "FORWARD_LEFT"], [259, 676, 305, -0.537, "FORWARD_LEFT"], [249, 699, 305, -0.537, "FORWARD_LEFT"], [246, 767, 306, -0.537, "FORWARD_LEFT"], [240, 765, 306, -0.537, "FORWARD_LEFT"], [228, 1300, 306, -0.597, "FORWARD_LEFT"], [220, 1300, 312, -0.712, "FORWARD_LEFT"], [210, 1300, 310, -0.739, "FORWARD_LEFT"], [193, 1300, 329, -0.739, "FORWARD_LEFT"], [180, 1300, 328, -0.739, "FORWARD_LEFT"], [166, 1300, 345, -0.686, "FORWARD_LEFT"], [155, 1300, 353, -0.66, "FORWARD_LEFT"], [147, 1300, 367, -0.608, "FORWARD_LEFT"], [138, 1300, 366, -0.283, "FORWARD_LEFT"], [125, 1300, 386, -0.283, "FORWARD_LEFT"], [122, 1300, 390, -0.186, "FORWARD_LEFT"], [123, 1300, 387, -0.081, "FORWARD"], [125, 1300, 392, 0.0, "FORWARD"], [126, 1300, 401, 0.0, "FORWARD"], [127, 1300, 396, 0.0, "FORWARD"], [134, 1300, 394, 0.051, "FORWARD"], [141, 1300, 395, 0.062, "FORWARD"], [140, 1300, 382, 0.062, "FORWARD"], [147, 1300, 388, 0.062, "FORWARD"], [146, 1300, 390, 0.074, "FORWARD"], [149, 1300, 383, 0.074, "FORWARD"], [154, 1300, 381, 0.175, "FORWARD_RIGHT"], [155, 1300, 383, 0.186, "FORWARD_RIGHT"], [160, 1300, 379, 0.186, "FORWARD_RIGHT"], [168, 1246, 375, 0.186, "FORWARD_RIGHT"], [172, 1300, 374, 0.186, "FORWARD_RIGHT"], [175, 1300, 362, 0.186, "FORWARD_RIGHT"], [187, 1300, 362, 0.186, "FORWARD_RIGHT"], [186, 1194, 346, 0.197, "FORWARD_RIGHT"], [193, 1300, 351, 0.197, "FORWARD_RIGHT"], [216, 1253, 343, 0.197, "FORWARD_RIGHT"], [216, 1192, 336, 0.197, "FORWARD_RIGHT"], [224, 1300, 326, 0.197, "FORWARD_RIGHT"], [243, 1155, 327, 0.197, "FORWARD_RIGHT"], [248, 1184, 311, 0.186, "FORWARD_RIGHT"], [259, 1134, 312, 0.186, "FORWARD_RIGHT"], [285, 1094, 305, 0.186, "FORWARD_RIGHT"], [285, 1300, 301, 0.186, "FORWARD_RIGHT"], [295, 1140, 300, 0.186, "FORWARD_RIGHT"], [314, 1123, 285, 0.186, "FORWARD_RIGHT"], [310, 1003, 282, 0.186, "FORWARD_RIGHT"], [340, 1071, 281, 0.186, "FORWARD_RIGHT"], [358, 1011, 266, 0.186, "FORWARD_RIGHT"], [363, 943, 261, 0.16, "FORWARD_RIGHT"], [380, 920, 264, 0.0, "FORWARD"], [386, 896, 251, 0.0, "FORWARD"], [395, 869, 250, 0.0, "FORWARD"], [413, 914, 245, 0.0, "FORWARD"], [452, 882, 243, 0.0, "FORWARD"], [475, 865, 237, 0.0, "FORWARD"], [474, 817, 233, 0.0, "FORWARD"], [561, 841, 230, 0.0, "FORWARD"], [626, 851, 222, 0.0, "FORWARD"], [648, 884, 223, 0.0, "FORWARD"], [815, 1300, 218, 0.01, "FORWARD"], [932, 765, 214, 0.047, "FORWARD"], [955, 778, 212, 0.059, "FORWARD"], [981, 772, 210, 0.059, "FORWARD"], [955, 776, 201, 0.059, "FORWARD"], [1003, 758, 197, 0.059, "FORWARD"], [957, 759, 195, 0.059, "FORWARD"], [949, 697, 193, 0.059, "FORWARD"], [929, 699, 186, 0.059, "FORWARD"], [869, 688, 182, 0.059, "FORWARD"], [896, 704, 175, 0.059, "FORWARD"], [901, 678, 173, 0.059, "FORWARD"], [859, 663, 167, 0.059, "FORWARD"], [881, 672, 163, 0.059, "FORWARD"], [846, 650, 160, 0.036, "FORWARD"], [834, 605, 160, 0.0, "FORWARD"], [830, 607, 163, -0.201, "FORWARD_LEFT"], [797, 618, 159, -0.26, "FORWARD_LEFT"], [812, 607, 150, -0.414, "FORWARD_LEFT"], [780, 601, 146, -0.548, "FORWARD_LEFT"], [795, 609, 143, -0.727, "FORWARD_LEFT"], [759, 594, 140, -0.75, "FORWARD_LEFT"], [781, 606, 142, -0.75, "FORWARD_LEFT"], [765, 601, 143, -0.75, "FORWARD_LEFT"], [791, 608, 150, -0.75, "FORWARD_LEFT"], [797, 610, 151, -0.75, "FORWARD_LEFT"], [798, 609, 154, -0.75, "FORWARD_LEFT"], [788, 606, 162, -0.813, "FORWARD_LEFT"], [785, 606, 166, -0.828, "FORWARD_LEFT"], [783, 602, 168, -0.828, "FORWARD_LEFT"], [790, 604, 179, -0.828, "FORWARD_LEFT"], [827, 610, 183, -0.828, "FORWARD_LEFT"], [789, 596, 188, -0.795, "FORWARD_LEFT"], [810, 597, 205, -0.72, "FORWARD_LEFT"], [825, 583, 210, -0.72, "FORWARD_LEFT"], [824, 571, 217, -0.724, "FORWARD_LEFT"], [848, 569, 236, -0.724, "FORWARD_LEFT"], [829, 553, 244, -0.724, "FORWARD_LEFT"], [841, 557, 255, -0.724, "FORWARD_LEFT"], [868, 548, 299, -0.724, "FORWARD_LEFT"], [870, 538, 309, -0.735, "FORWARD_LEFT"], [917, 546, 321, -0.735, "FORWARD_LEFT"], [969, 538, 388, -0.522, "FORWARD_LEFT"], [963, 542, 421, -0.275, "FORWARD_LEFT"], [1042, 534, 460, -0.253, "FORWARD_LEFT"], [982, 522, 481, -0.253, "FORWARD_LEFT"], [1034, 511, 487, -0.253, "FORWARD_LEFT"], [1019, 509, 494, -0.253, "FORWARD_LEFT"], [982, 485, 503, -0.44, "FORWARD_LEFT"], [932, 476, 497, -0.582, "FORWARD_LEFT"], [934, 473, 492, -0.593, "FORWARD_LEFT"], [946, 456, 481, -0.593, "FORWARD_LEFT"], [1007, 459, 481, -0.593, "FORWARD_LEFT"], [961, 455, 466, -0.593, "FORWARD_LEFT"], [1300, 443, 443, -0.593, "FORWARD_LEFT"], [1059, 442, 435, -0.593, "FORWARD_LEFT"], [1300, 442, 432, -0.593, "FORWARD_LEFT"], [1300, 444, 407, -0.593, "FORWARD_LEFT"], [1300, 454, 390, -0.582, "FORWARD_LEFT"], [1300, 442, 392, -0.582, "FORWARD_LEFT"], [1300, 445, 380, -0.582, "FORWARD_LEFT"], [1300, 437, 369, -0.544, "FORWARD_LEFT"], [1300, 444, 363, -0.533, "FORWARD_LEFT"], [1300, 460, 345, -0.507, "FORWARD_LEFT"], [1300, 454, 343, -0.473, "FORWARD_LEFT"], [1300, 452, 342, -0.447, "FORWARD_LEFT"], [1300, 448, 327, -0.436, "FORWARD_LEFT"], [1300, 447, 322, -0.122, "FORWARD"], [1300, 445, 309, -0.014, "FORWARD"], [1300, 431, 303, -0.014, "FORWARD"], [1300, 426, 294, -0.014, "FORWARD"], [1300, 395, 279, -0.13, "FORWARD"], [1300, 385, 266, -0.219, "FORWARD_LEFT"], [1300, 375, 257, -0.287, "FORWARD_LEFT"], [1300, 355, 238, -0.526, "FORWARD_LEFT"], [1300, 345, 236, -0.727, "FORWARD_LEFT"], [1300, 337, 231, -0.742, "FORWARD_LEFT"], [1300, 322, 215, -0.742, "FORWARD_LEFT"], [1300, 331, 213, -0.75, "FORWARD_LEFT"], [1300, 337, 214, -0.75, "FORWARD_LEFT"], [1300, 336, 212, -0.75, "FORWARD_LEFT"], [1300, 346, 216, -0.75, "FORWARD_LEFT"], [1300, 343, 214, -0.75, "FORWARD_LEFT"], [1112, 351, 218, -0.75, "FORWARD_LEFT"], [1043, 358, 217, -0.75, "FORWARD_LEFT"], [992, 375, 217, -0.75, "FORWARD_LEFT"], [808, 400, 224, -0.75, "FORWARD_LEFT"], [758, 392, 225, -0.75, "FORWARD_LEFT"], [739, 411, 224, -0.75, "FORWARD_LEFT"], [623, 438, 232, -0.746, "FORWARD_LEFT"], [595, 440, 237, -0.746, "FORWARD_LEFT"], [569, 481, 242, -0.746, "FORWARD_LEFT"], [499, 525, 248, -0.746, "FORWARD_LEFT"], [502, 564, 250, -0.746, "FORWARD_LEFT"], [469, 611, 257, -0.746, "FORWARD_LEFT"], [431, 611, 246, -0.746, "FORWARD_LEFT"], [411, 778, 244, -0.275, "FORWARD_LEFT"], [405, 813, 244, -0.178, "FORWARD_LEFT"], [377, 913, 242, -0.036, "FORWARD"], [369, 886, 243, 0.0, "FORWARD"], [375, 899, 242, 0.0, "FORWARD"], [384, 874, 242, 0.0, "FORWARD"], [383, 841, 239, 0.0, "FORWARD"], [386, 851, 234, 0.0, "FORWARD"], [378, 823, 226, 0.0, "FORWARD"], [389, 817, 222, 0.0, "FORWARD"], [388, 805, 221, 0.0, "FORWARD"], [393, 815, 217, 0.0, "FORWARD"], [395, 793, 214, 0.0, "FORWARD"], [389, 811, 214, 0.0, "FORWARD"], [387, 750, 212, 0.0, "FORWARD"], [390, 767, 211, 0.0, "FORWARD"], [400, 760, 202, 0.0, "FORWARD"], [396, 749, 197, 0.0, "FORWARD"], [397, 724, 194, 0.0, "FORWARD"], [395, 748, 192, -0.074, "FORWARD"], [391, 698, 188, -0.287, "FORWARD_LEFT"], [393, 704, 182, -0.589, "FORWARD_LEFT"], [394, 708, 181, -0.731, "FORWARD_LEFT"], [387, 740, 181, -0.746, "FORWARD_LEFT"], [372, 766, 185, -0.746, "FORWARD_LEFT"], [355, 796, 192, -0.75, "FORWARD_LEFT"], [331, 840, 207, -0.75, "FORWARD_LEFT"], [327, 833, 212, -0.75, "FORWARD_LEFT"], [325, 817, 218, -0.75, "FORWARD_LEFT"], [295, 827, 238, -0.746, "FORWARD_LEFT"], [291, 848, 243, -0.548, "FORWARD_LEFT"], [286, 841, 251, -0.466, "FORWARD_LEFT"], [267, 823, 268, -0.443, "FORWARD_LEFT"], [273, 840, 266, -0.432, "FORWARD_LEFT"], [268, 828, 274, -0.432, "FORWARD_LEFT"], [255, 816, 280, -0.432, "FORWARD_LEFT"], [254, 802, 287, -0.432, "FORWARD_LEFT"], [249, 803, 293, -0.436, "FORWARD_LEFT"], [239, 799, 299, -0.44, "FORWARD_LEFT"], [240, 786, 299, -0.44, "FORWARD_LEFT"], [234, 770, 310, -0.29, "FORWARD_LEFT"], [223, 764, 318, -0.223, "FORWARD_LEFT"], [216, 773, 325, -0.238, "FORWARD_LEFT"], [217, 765, 328, -0.227, "FORWARD_LEFT"], [208, 739, 334, -0.178, "FORWARD_LEFT"], [205, 742, 330, -0.145, "FORWARD"], [197, 730, 345, -0.148, "FORWARD"], [197, 716, 343, -0.137, "FORWARD"], [191, 703, 348, -0.115, "FORWARD"], [187, 699, 345, -0.033, "FORWARD"], [181, 676, 342, -0.018, "FORWARD"], [175, 665, 356, 0.0, "FORWARD"], [168, 660, 351, 0.04, "FORWARD"], [161, 638, 363, 0.051, "FORWARD"], [152, 621, 371, 0.051, "FORWARD"], [155, 613, 366, 0.051, "FORWARD"], [156, 597, 370, 0.051, "FORWARD"], [179, 587, 378, 0.231, "FORWARD_RIGHT"], [280, 573, 379, 0.268, "FORWARD_RIGHT"], [1300, 566, 379, 0.268, "FORWARD_RIGHT"], [1300, 553, 384, 0.268, "FORWARD_RIGHT"], [1300, 537, 382, 0.268, "FORWARD_RIGHT"], [1242, 501, 365, 0.268, "FORWARD_RIGHT"], [1163, 493, 365, 0.268, "FORWARD_RIGHT"], [1169, 488, 367, 0.268, "FORWARD_RIGHT"], [1042, 466, 351, 0.268, "FORWARD_RIGHT"], [1003, 453, 357, 0.268, "FORWARD_RIGHT"], [966, 436, 356, 0.268, "FORWARD_RIGHT"], [902, 415, 343, -0.014, "FORWARD"], [869, 407, 349, -0.287, "FORWARD_LEFT"], [861, 401, 344, -0.653, "FORWARD_LEFT"], [878, 375, 355, -0.753, "FORWARD_LEFT"], [841, 367, 350, -0.757, "FORWARD_LEFT"], [831, 369, 356, -0.795, "FORWARD_LEFT"], [886, 362, 359, -0.795, "FORWARD_LEFT"], [914, 361, 358, -0.795, "FORWARD_LEFT"], [981, 362, 366, -0.795, "FORWARD_LEFT"], [1300, 367, 355, -0.75, "FORWARD_LEFT"], [1234, 363, 360, -0.697, "FORWARD_LEFT"], [1300, 371, 340, -0.709, "FORWARD_LEFT"], [1300, 370, 331, -0.709, "FORWARD_LEFT"], [1300, 370, 328, -0.709, "FORWARD_LEFT"], [1300, 376, 318, -0.709, "FORWARD_LEFT"], [1300, 374, 305, -0.709, "FORWARD_LEFT"], [1300, 385, 304, -0.709, "FORWARD_LEFT"], [1300, 379, 295, -0.709, "FORWARD_LEFT"], [1300, 388, 293, -0.709, "FORWARD_LEFT"], [1300, 391, 288, -0.739, "FORWARD_LEFT"], [1300, 395, 283, -0.746, "FORWARD_LEFT"], [1300, 409, 278, -0.75, "FORWARD_LEFT"], [1300, 413, 276, -0.753, "FORWARD_LEFT"], [1300, 432, 278, -0.753, "FORWARD_LEFT"], [1300, 456, 275, -0.753, "FORWARD_LEFT"], [1300, 463, 272, -0.731, "FORWARD_LEFT"], [1300, 486, 277, -0.384, "FORWARD_LEFT"], [1300, 506, 278, -0.283, "FORWARD_LEFT"], [1213, 501, 275, -0.283, "FORWARD_LEFT"], [1154, 511, 269, -0.294, "FORWARD_LEFT"], [1148, 495, 263, -0.492, "FORWARD_LEFT"], [1228, 497, 262, -0.548, "FORWARD_LEFT"], [1143, 493, 250, -0.6, "FORWARD_LEFT"], [1300, 502, 244, -0.656, "FORWARD_LEFT"], [1024, 509, 247, -0.701, "FORWARD_LEFT"], [830, 544, 247, -0.701, "FORWARD_LEFT"], [727, 560, 249, -0.701, "FORWARD_LEFT"], [709, 594, 251, -0.727, "FORWARD_LEFT"], [578, 627, 258, -0.746, "FORWARD_LEFT"], [576, 640, 259, -0.753, "FORWARD_LEFT"], [558, 680, 262, -0.75, "FORWARD_LEFT"], [512, 762, 274, -0.761, "FORWARD_LEFT"], [490, 817, 279, -0.518, "FORWARD_LEFT"], [480, 926, 281, -0.29, "FORWARD_LEFT"], [443, 1109, 293, -0.283, "FORWARD_LEFT"], [435, 1156, 293, -0.283, "FORWARD_LEFT"], [440, 1225, 292, -0.283, "FORWARD_LEFT"], [433, 1165, 289, -0.283, "FORWARD_LEFT"], [444, 1159, 287, -0.272, "FORWARD_LEFT"], [440, 1182, 286, -0.272, "FORWARD_LEFT"], [442, 1153, 285, -0.272, "FORWARD_LEFT"], [448, 1221, 281, -0.272, "FORWARD_LEFT"], [445, 1212, 285, -0.369, "FORWARD_LEFT"], [440, 1215, 285, -0.522, "FORWARD_LEFT"], [433, 1178, 285, -0.544, "FORWARD_LEFT"], [433, 1219, 283, -0.66, "FORWARD_LEFT"], [422, 1214, 293, -0.727, "FORWARD_LEFT"], [413, 1208, 294, -0.742, "FORWARD_LEFT"], [379, 1224, 306, -0.753, "FORWARD_LEFT"], [358, 1241, 337, -0.78, "FORWARD_LEFT"], [345, 1203, 343, -0.839, "FORWARD_LEFT"], [328, 1233, 372, -0.832, "FORWARD_LEFT"], [314, 1199, 393, -0.832, "FORWARD_LEFT"], [304, 1201, 411, -0.832, "FORWARD_LEFT"], [288, 1180, 435, -0.832, "FORWARD_LEFT"], [273, 1192, 473, -0.824, "FORWARD_LEFT"], [259, 1222, 468, -0.697, "FORWARD_LEFT"], [253, 1226, 506, -0.597, "FORWARD_LEFT"], [239, 1120, 567, -0.608, "FORWARD_LEFT"], [226, 1136, 615, -0.608, "FORWARD_LEFT"], [221, 1112, 633, -0.608, "FORWARD_LEFT"], [212, 1043, 670, -0.608, "FORWARD_LEFT"], [201, 956, 704, -0.608, "FORWARD_LEFT"], [200, 894, 744, -0.593, "FORWARD_LEFT"], [181, 667, 839, -0.369, "FORWARD_LEFT"], [178, 616, 906, -0.115, "FORWARD"], [170, 542, 997, 0.055, "FORWARD"], [165, 497, 971, 0.16, "FORWARD_RIGHT"], [167, 512, 959, 0.384, "FORWARD_RIGHT"], [161, 517, 975, 0.384, "FORWARD_RIGHT"], [149, 518, 968, 0.384, "FORWARD_RIGHT"], [147, 536, 974, 0.384, "FORWARD_RIGHT"], [146, 534, 935, 0.384, "FORWARD_RIGHT"], [143, 646, 873, 0.384, "FORWARD_RIGHT"], [141, 695, 867, 0.384, "FORWARD_RIGHT"], [142, 796, 843, 0.384, "FORWARD_RIGHT"], [141, 837, 803, 0.384, "FORWARD_RIGHT"], [141, 857, 771, 0.384, "FORWARD_RIGHT"], [142, 901, 807, 0.384, "FORWARD_RIGHT"], [135, 909, 784, 0.384, "FORWARD_RIGHT"], [134, 921, 774, 0.384, "FORWARD_RIGHT"], [136, 938, 751, 0.384, "FORWARD_RIGHT"], [142, 959, 713, 0.384, "FORWARD_RIGHT"], [138, 938, 723, 0.384, "FORWARD_RIGHT"], [137, 923, 701, 0.384, "FORWARD_RIGHT"], [136, 930, 694, 0.384, "FORWARD_RIGHT"], [138, 911, 698, 0.384, "FORWARD_RIGHT"], [138, 901, 680, 0.384, "FORWARD_RIGHT"], [147, 899, 649, 0.384, "FORWARD_RIGHT"], [148, 869, 634, 0.384, "FORWARD_RIGHT"], [159, 878, 614, 0.384, "FORWARD_RIGHT"], [152, 859, 611, 0.384, "FORWARD_RIGHT"], [156, 841, 619, 0.384, "FORWARD_RIGHT"], [160, 833, 592, 0.384, "FORWARD_RIGHT"], [161, 828, 598, 0.384, "FORWARD_RIGHT"], [164, 810, 576, 0.384, "FORWARD_RIGHT"], [167, 800, 577, 0.384, "FORWARD_RIGHT"], [170, 791, 557, 0.384, "FORWARD_RIGHT"], [175, 785, 553, 0.384, "FORWARD_RIGHT"], [180, 772, 543, 0.384, "FORWARD_RIGHT"], [187, 757, 545, 0.384, "FORWARD_RIGHT"], [200, 745, 530, 0.384, "FORWARD_RIGHT"], [203, 733, 520, 0.384, "FORWARD_RIGHT"], [213, 722, 508, 0.384, "FORWARD_RIGHT"], [222, 723, 501, 0.384, "FORWARD_RIGHT"], [233, 726, 478, 0.384, "FORWARD_RIGHT"], [266, 699, 470, 0.107, "FORWARD"], [280, 691, 454, -0.014, "FORWARD"], [320, 687, 450, -0.141, "FORWARD"], [481, 669, 451, -0.156, "FORWARD_LEFT"], [559, 653, 452, -0.163, "FORWARD_LEFT"], [658, 640, 447, -0.163, "FORWARD_LEFT"], [805, 617, 436, -0.163, "FORWARD_LEFT"], [806, 605, 433, -0.163, "FORWARD_LEFT"], [797, 602, 444, -0.163, "FORWARD_LEFT"], [768, 568, 445, -0.163, "FORWARD_LEFT"], [770, 563, 444, -0.163, "FORWARD_LEFT"], [761, 554, 441, -0.163, "FORWARD_LEFT"], [726, 528, 445, -0.163, "FORWARD_LEFT"], [719, 524, 429, -0.163, "FORWARD_LEFT"], [711, 510, 439, -0.253, "FORWARD_LEFT"], [681, 489, 433, -0.298, "FORWARD_LEFT"], [660, 477, 439, -0.529, "FORWARD_LEFT"], [649, 472, 441, -0.604, "FORWARD_LEFT"], [638, 444, 458, -0.597, "FORWARD_LEFT"], [641, 439, 456, -0.608, "FORWARD_LEFT"], [642, 421, 459, -0.608, "FORWARD_LEFT"], [633, 415, 484, -0.608, "FORWARD_LEFT"], [634, 412, 492, -0.608, "FORWARD_LEFT"], [655, 397, 516, -0.608, "FORWARD_LEFT"], [673, 392, 516, -0.608, "FORWARD_LEFT"], [687, 387, 513, -0.608, "FORWARD_LEFT"], [678, 377, 497, -0.608, "FORWARD_LEFT"], [700, 364, 483, -0.608, "FORWARD_LEFT"], [717, 358, 468, -0.608, "FORWARD_LEFT"], [698, 353, 442, -0.608, "FORWARD_LEFT"], [748, 344, 412, -0.608, "FORWARD_LEFT"], [743, 341, 397, -0.619, "FORWARD_LEFT"], [741, 335, 376, -0.619, "FORWARD_LEFT"], [790, 326, 368, -0.619, "FORWARD_LEFT"], [814, 321, 346, -0.619, "FORWARD_LEFT"], [824, 319, 340, -0.619, "FORWARD_LEFT"], [965, 318, 323, -0.619, "FORWARD_LEFT"], [968, 310, 304, -0.619, "FORWARD_LEFT"], [1000, 311, 303, -0.619, "FORWARD_LEFT"], [1086, 306, 285, -0.619, "FORWARD_LEFT"], [1202, 305, 276, -0.619, "FORWARD_LEFT"], [1213, 303, 269, -0.619, "FORWARD_LEFT"], [1252, 301, 256, -0.753, "FORWARD_LEFT"], [1237, 295, 251, -0.836, "FORWARD_LEFT"], [1300, 304, 243, -0.832, "FORWARD_LEFT"], [1300, 306, 238, -0.832, "FORWARD_LEFT"], [1237, 312, 238, -0.832, "FORWARD_LEFT"], [1300, 322, 235, -0.832, "FORWARD_LEFT"], [1300, 338, 232, -0.768, "FORWARD_LEFT"], [1300, 340, 229, -0.529, "FORWARD_LEFT"], [1300, 351, 227, -0.492, "FORWARD_LEFT"], [1300, 369, 228, -0.488, "FORWARD_LEFT"], [1252, 358, 225, -0.477, "FORWARD_LEFT"], [1225, 369, 217, -0.477, "FORWARD_LEFT"], [1260, 362, 211, -0.477, "FORWARD_LEFT"], [1241, 371, 206, -0.477, "FORWARD_LEFT"], [1300, 358, 199, -0.526, "FORWARD_LEFT"], [1186, 366, 197, -0.604, "FORWARD_LEFT"], [1205, 363, 194, -0.63, "FORWARD_LEFT"], [1119, 392, 192, -0.72, "FORWARD_LEFT"], [1119, 405, 189, -0.757, "FORWARD_LEFT"], [1003, 416, 190, -0.78, "FORWARD_LEFT"], [948, 459, 195, -0.791, "FORWARD_LEFT"], [838, 480, 199, -0.791, "FORWARD_LEFT"], [715, 483, 198, -0.746, "FORWARD_LEFT"], [617, 515, 204, -0.6, "FORWARD_LEFT"], [595, 528, 208, -0.6, "FORWARD_LEFT"], [545, 553, 209, -0.6, "FORWARD_LEFT"], [509, 623, 213, -0.6, "FORWARD_LEFT"], [493, 626, 217, -0.6, "FORWARD_LEFT"], [475, 658, 217, -0.6, "FORWARD_LEFT"], [452, 792, 226, -0.548, "FORWARD_LEFT"], [429, 830, 230, -0.533, "FORWARD_LEFT"], [415, 897, 236, -0.533, "FORWARD_LEFT"], [395, 953, 243, -0.533, "FORWARD_LEFT"], [380, 1026, 245, -0.533, "FORWARD_LEFT"], [384, 1043, 249, -0.204, "FORWARD_LEFT"], [368, 1026, 250, -0.126, "FORWARD"], [362, 1029, 255, -0.126, "FORWARD"], [356, 1022, 257, -0.268, "FORWARD_LEFT"], [361, 998, 263, -0.313, "FORWARD_LEFT"], [365, 1005, 256, -0.324, "FORWARD_LEFT"], [362, 1003, 263, -0.279, "FORWARD_LEFT"], [355, 968, 264, -0.118, "FORWARD"], [355, 943, 265, -0.04, "FORWARD"], [367, 944, 266, -0.014, "FORWARD"], [366, 949, 264, 0.0, "FORWARD"], [368, 925, 256, 0.0, "FORWARD"], [377, 913, 253, 0.0, "FORWARD"], [377, 888, 248, 0.04, "FORWARD"], [380, 886, 243, 0.055, "FORWARD"], [379, 880, 239, 0.092, "FORWARD"], [381, 863, 242, 0.167, "FORWARD_RIGHT"], [389, 838, 241, 0.167, "FORWARD_RIGHT"], [401, 837, 247, 0.156, "FORWARD_RIGHT"], [424, 808, 254, 0.156, "FORWARD_RIGHT"], [436, 794, 244, 0.104, "FORWARD"], [483, 778, 244, 0.0, "FORWARD"], [516, 775, 238, 0.0, "FORWARD"], [543, 764, 243, 0.0, "FORWARD"], [633, 753, 237, 0.0, "FORWARD"], [744, 731, 233, 0.0, "FORWARD"], [783, 723, 234, 0.0, "FORWARD"], [850, 707, 232, 0.0, "FORWARD"], [828, 706, 224, 0.0, "FORWARD"], [910, 672, 229, 0.0, "FORWARD"], [899, 670, 224, -0.171, "FORWARD_LEFT"], [861, 639, 221, -0.223, "FORWARD_LEFT"], [819, 637, 221, -0.287, "FORWARD_LEFT"], [822, 635, 223, -0.294, "FORWARD_LEFT"], [846, 604, 217, -0.302, "FORWARD_LEFT"], [801, 600, 220, -0.298, "FORWARD_LEFT"], [796, 590, 218, -0.298, "FORWARD_LEFT"], [798, 573, 221, -0.298, "FORWARD_LEFT"], [760, 559, 220, 0.0, "FORWARD"], [761, 550, 226, 0.059, "FORWARD"], [737, 533, 223, 0.077, "FORWARD"], [714, 516, 226, 0.077, "FORWARD"], [712, 507, 218, 0.077, "FORWARD"], [673, 497, 219, 0.089, "FORWARD"], [657, 485, 215, 0.089, "FORWARD"], [663, 481, 211, 0.089, "FORWARD"], [641, 451, 212, 0.089, "FORWARD"], [629, 450, 208, -0.118, "FORWARD"], [595, 439, 208, -0.182, "FORWARD_LEFT"], [573, 417, 206, -0.193, "FORWARD_LEFT"], [561, 401, 209, -0.287, "FORWARD_LEFT"], [570, 393, 210, -0.537, "FORWARD_LEFT"], [531, 371, 208, -0.727, "FORWARD_LEFT"], [529, 358, 213, -0.836, "FORWARD_LEFT"], [517, 357, 214, -0.981, "FORWARD_LEFT"], [518, 333, 226, -1.0, "FORWARD_LEFT"], [521, 337, 235, -1.0, "FORWARD_LEFT"], [537, 337, 238, -1.0, "FORWARD_LEFT"], [535, 337, 235, -0.974, "FORWARD_LEFT"], [509, 336, 237, -0.694, "FORWARD_LEFT"], [529, 330, 237, -0.694, "FORWARD_LEFT"], [538, 332, 256, -0.727, "FORWARD_LEFT"], [543, 327, 264, -0.75, "FORWARD_LEFT"], [544, 319, 270, -0.761, "FORWARD_LEFT"], [546, 310, 310, -0.821, "FORWARD_LEFT"], [594, 311, 314, -0.836, "FORWARD_LEFT"], [570, 305, 330, -0.836, "FORWARD_LEFT"], [629, 306, 346, -0.824, "FORWARD_LEFT"], [657, 299, 356, -0.824, "FORWARD_LEFT"], [682, 297, 352, -0.824, "FORWARD_LEFT"], [702, 303, 339, -0.824, "FORWARD_LEFT"], [769, 298, 341, -0.824, "FORWARD_LEFT"], [1300, 303, 334, -0.824, "FORWARD_LEFT"], [789, 303, 318, -0.824, "FORWARD_LEFT"], [878, 297, 315, -0.824, "FORWARD_LEFT"], [1300, 301, 303, -0.824, "FORWARD_LEFT"], [1300, 299, 292, -0.824, "FORWARD_LEFT"], [1300, 304, 294, -0.821, "FORWARD_LEFT"], [1300, 303, 287, -0.821, "FORWARD_LEFT"], [1300, 308, 280, -0.821, "FORWARD_LEFT"], [1300, 307, 280, -0.821, "FORWARD_LEFT"], [1300, 311, 269, -0.817, "FORWARD_LEFT"], [1300, 322, 260, -0.817, "FORWARD_LEFT"], [1300, 324, 261, -0.817, "FORWARD_LEFT"], [1300, 324, 256, -0.817, "FORWARD_LEFT"], [1300, 333, 261, -0.817, "FORWARD_LEFT"], [1300, 343, 255, -0.817, "FORWARD_LEFT"], [1300, 347, 246, -0.776, "FORWARD_LEFT"], [1300, 357, 246, -0.776, "FORWARD_LEFT"], [1300, 366, 243, -0.772, "FORWARD_LEFT"], [1300, 379, 239, -0.761, "FORWARD_LEFT"], [1300, 397, 243, -0.761, "FORWARD_LEFT"], [1300, 404, 236, -0.761, "FORWARD_LEFT"], [1300, 411, 240, -0.761, "FORWARD_LEFT"], [696, 436, 242, -0.761, "FORWARD_LEFT"], [659, 452, 240, -0.724, "FORWARD_LEFT"], [524, 498, 244, -0.578, "FORWARD_LEFT"], [494, 493, 247, -0.578, "FORWARD_LEFT"], [433, 540, 246, -0.578, "FORWARD_LEFT"], [392, 558, 246, -0.537, "FORWARD_LEFT"], [383, 570, 251, -0.447, "FORWARD_LEFT"], [376, 584, 249, -0.443, "FORWARD_LEFT"], [386, 591, 241, -0.443, "FORWARD_LEFT"], [376, 614, 240, -0.443, "FORWARD_LEFT"], [375, 600, 237, -0.522, "FORWARD_LEFT"], [370, 636, 238, -0.552, "FORWARD_LEFT"], [361, 657, 239, -0.552, "FORWARD_LEFT"], [340, 663, 236, -0.552, "FORWARD_LEFT"], [338, 732, 242, -0.552, "FORWARD_LEFT"], [329, 755, 243, -0.552, "FORWARD_LEFT"], [323, 1300, 244, -0.552, "FORWARD_LEFT"], [305, 1300, 254, -0.552, "FORWARD_LEFT"], [296, 1300, 252, -0.552, "FORWARD_LEFT"], [286, 830, 257, -0.466, "FORWARD_LEFT"], [279, 1300, 259, -0.443, "FORWARD_LEFT"], [270, 1300, 265, -0.432, "FORWARD_LEFT"], [261, 1300, 269, -0.432, "FORWARD_LEFT"], [263, 1300, 274, -0.421, "FORWARD_LEFT"], [257, 1262, 272, -0.421, "FORWARD_LEFT"], [251, 1300, 277, -0.421, "FORWARD_LEFT"], [249, 1300, 285, -0.421, "FORWARD_LEFT"], [245, 1300, 288, -0.421, "FORWARD_LEFT"], [238, 1300, 288, -0.421, "FORWARD_LEFT"], [233, 1300, 294, -0.421, "FORWARD_LEFT"], [231, 1300, 299, -0.395, "FORWARD_LEFT"], [236, 1300, 307, -0.395, "FORWARD_LEFT"], [228, 1300, 312, -0.395, "FORWARD_LEFT"], [225, 1300, 319, -0.406, "FORWARD_LEFT"], [226, 1300, 328, -0.406, "FORWARD_LEFT"], [220, 1300, 329, -0.387, "FORWARD_LEFT"], [220, 1300, 327, -0.302, "FORWARD_LEFT"], [216, 1300, 335, -0.283, "FORWARD_LEFT"], [213, 1300, 339, -0.283, "FORWARD_LEFT"], [210, 1300, 342, -0.283, "FORWARD_LEFT"], [211, 1300, 354, -0.283, "FORWARD_LEFT"], [207, 1300, 356, -0.287, "FORWARD_LEFT"], [202, 1300, 361, -0.287, "FORWARD_LEFT"], [207, 1300, 362, -0.287, "FORWARD_LEFT"], [198, 1300, 370, -0.287, "FORWARD_LEFT"], [197, 1272, 377, -0.287, "FORWARD_LEFT"], [191, 1246, 377, -0.287, "FORWARD_LEFT"], [191, 1251, 390, -0.287, "FORWARD_LEFT"], [189, 1300, 396, -0.287, "FORWARD_LEFT"], [185, 1300, 401, -0.287, "FORWARD_LEFT"], [182, 1234, 412, -0.287, "FORWARD_LEFT"], [179, 1196, 419, -0.287, "FORWARD_LEFT"], [176, 1213, 421, -0.287, "FORWARD_LEFT"], [173, 1227, 422, -0.287, "FORWARD_LEFT"], [169, 1203, 433, -0.287, "FORWARD_LEFT"], [165, 1209, 439, -0.275, "FORWARD_LEFT"], [163, 1170, 462, -0.223, "FORWARD_LEFT"], [164, 1109, 446, -0.115, "FORWARD"], [158, 1130, 446, -0.104, "FORWARD"], [156, 1128, 464, -0.089, "FORWARD"], [155, 1056, 463, -0.055, "FORWARD"], [153, 1124, 459, -0.044, "FORWARD"], [152, 1083, 467, -0.044, "FORWARD"], [150, 1065, 466, -0.051, "FORWARD"], [149, 1066, 482, -0.018, "FORWARD"], [145, 1040, 488, 0.0, "FORWARD"], [146, 1039, 486, 0.148, "FORWARD"], [144, 1027, 511, 0.216, "FORWARD_RIGHT"], [140, 1025, 490, 0.201, "FORWARD_RIGHT"], [139, 1013, 505, 0.201, "FORWARD_RIGHT"], [139, 1023, 510, 0.201, "FORWARD_RIGHT"], [140, 968, 497, 0.201, "FORWARD_RIGHT"], [144, 960, 502, 0.201, "FORWARD_RIGHT"], [142, 971, 470, 0.201, "FORWARD_RIGHT"], [145, 945, 467, 0.503, "FORWARD_RIGHT"], [146, 917, 489, 0.638, "FORWARD_RIGHT"], [144, 925, 484, 0.686, "FORWARD_RIGHT"], [152, 874, 468, 0.724, "FORWARD_RIGHT"], [157, 896, 467, 0.843, "FORWARD_RIGHT"], [164, 866, 432, 0.843, "FORWARD_RIGHT"], [189, 904, 408, 0.776, "FORWARD_RIGHT"], [196, 886, 401, 0.16, "FORWARD_RIGHT"], [216, 877, 378, 0.148, "FORWARD"], [229, 912, 364, 0.148, "FORWARD"], [233, 901, 354, 0.096, "FORWARD"], [236, 855, 351, 0.074, "FORWARD"], [239, 865, 351, 0.085, "FORWARD"], [251, 843, 351, -0.018, "FORWARD"], [260, 814, 346, -0.141, "FORWARD"], [271, 819, 345, -0.193, "FORWARD_LEFT"], [307, 799, 344, -0.186, "FORWARD_LEFT"], [333, 784, 344, -0.216, "FORWARD_LEFT"], [476, 758, 341, -0.294, "FORWARD_LEFT"], [654, 745, 341, -0.294, "FORWARD_LEFT"], [725, 727, 343, -0.294, "FORWARD_LEFT"], [838, 722, 347, -0.354, "FORWARD_LEFT"], [827, 692, 348, -0.533, "FORWARD_LEFT"], [844, 692, 346, -0.578, "FORWARD_LEFT"], [866, 677, 351, -0.608, "FORWARD_LEFT"], [848, 660, 358, -0.679, "FORWARD_LEFT"], [876, 664, 366, -0.69, "FORWARD_LEFT"], [889, 638, 403, -0.724, "FORWARD_LEFT"], [860, 640, 411, -0.731, "FORWARD_LEFT"], [868, 641, 428, -0.742, "FORWARD_LEFT"], [855, 630, 487, -0.742, "FORWARD_LEFT"], [821, 632, 502, -0.742, "FORWARD_LEFT"], [791, 624, 532, -0.742, "FORWARD_LEFT"], [383, 628, 599, -0.739, "FORWARD_LEFT"], [300, 597, 613, -0.533, "FORWARD_LEFT"], [256, 610, 646, -0.313, "FORWARD_LEFT"], [197, 599, 648, -0.298, "FORWARD_LEFT"], [207, 598, 657, -0.298, "FORWARD_LEFT"], [227, 595, 634, -0.287, "FORWARD_LEFT"], [948, 580, 611, -0.145, "FORWARD"], [1039, 581, 638, -0.145, "FORWARD"], [1114, 562, 590, -0.145, "FORWARD"], [1044, 548, 590, -0.145, "FORWARD"], [1061, 526, 590, -0.145, "FORWARD"], [972, 525, 564, -0.145, "FORWARD"], [968, 499, 541, -0.145, "FORWARD"], [920, 484, 512, -0.145, "FORWARD"], [886, 467, 499, -0.272, "FORWARD_LEFT"], [909, 462, 487, -0.537, "FORWARD_LEFT"], [905, 455, 481, -0.604, "FORWARD_LEFT"], [875, 427, 458, -0.742, "FORWARD_LEFT"], [924, 427, 450, -0.832, "FORWARD_LEFT"], [922, 434, 428, -0.828, "FORWARD_LEFT"], [1010, 444, 413, -0.839, "FORWARD_LEFT"], [1095, 448, 405, -0.839, "FORWARD_LEFT"], [1177, 441, 400, -0.828, "FORWARD_LEFT"], [1263, 445, 389, -0.828, "FORWARD_LEFT"], [1300, 450, 388, -0.824, "FORWARD_LEFT"], [1261, 445, 385, -0.761, "FORWARD_LEFT"], [1300, 455, 379, -0.761, "FORWARD_LEFT"], [1268, 447, 369, -0.761, "FORWARD_LEFT"], [1300, 459, 368, -0.761, "FORWARD_LEFT"], [1300, 453, 360, -0.761, "FORWARD_LEFT"], [1300, 455, 356, -0.761, "FORWARD_LEFT"], [1227, 459, 358, -0.761, "FORWARD_LEFT"], [1222, 479, 354, -0.761, "FORWARD_LEFT"], [1041, 486, 356, -0.761, "FORWARD_LEFT"], [914, 493, 358, -0.739, "FORWARD_LEFT"], [710, 517, 358, -0.735, "FORWARD_LEFT"], [556, 522, 365, -0.724, "FORWARD_LEFT"], [490, 553, 362, -0.69, "FORWARD_LEFT"], [415, 595, 366, -0.645, "FORWARD_LEFT"], [430, 581, 371, -0.522, "FORWARD_LEFT"], [396, 598, 365, -0.451, "FORWARD_LEFT"], [358, 643, 358, -0.447, "FORWARD_LEFT"], [348, 636, 354, -0.436, "FORWARD_LEFT"], [347, 644, 351, -0.436, "FORWARD_LEFT"], [362, 622, 330, -0.436, "FORWARD_LEFT"], [357, 637, 327, -0.425, "FORWARD_LEFT"], [342, 666, 323, -0.436, "FORWARD_LEFT"], [339, 670, 310, -0.436, "FORWARD_LEFT"], [334, 652, 312, -0.436, "FORWARD_LEFT"], [326, 673, 315, -0.436, "FORWARD_LEFT"], [323, 685, 313, -0.425, "FORWARD_LEFT"], [321, 700, 307, -0.425, "FORWARD_LEFT"], [326, 713, 303, -0.425, "FORWARD_LEFT"], [321, 735, 303, -0.309, "FORWARD_LEFT"], [318, 694, 301, -0.309, "FORWARD_LEFT"], [321, 727, 300, -0.309, "FORWARD_LEFT"], [325, 723, 293, -0.309, "FORWARD_LEFT"], [313, 722, 294, -0.309, "FORWARD_LEFT"], [317, 759, 293, -0.298, "FORWARD_LEFT"], [306, 746, 288, -0.193, "FORWARD_LEFT"], [310, 742, 282, -0.118, "FORWARD"], [308, 753, 277, -0.014, "FORWARD"], [317, 750, 281, -0.014, "FORWARD"], [324, 735, 271, 0.0, "FORWARD"], [337, 707, 264, 0.051, "FORWARD"], [338, 679, 259, 0.062, "FORWARD"], [346, 666, 248, 0.062, "FORWARD"], [358, 645, 245, 0.062, "FORWARD"], [370, 607, 234, 0.062, "FORWARD"], [370, 605, 229, 0.062, "FORWARD"], [392, 574, 225, 0.062, "FORWARD"], [421, 543, 218, 0.062, "FORWARD"], [480, 546, 214, 0.085, "FORWARD"], [545, 536, 209, 0.499, "FORWARD_RIGHT"], [799, 506, 197, 0.492, "FORWARD_RIGHT"], [838, 496, 191, 0.492, "FORWARD_RIGHT"], [923, 487, 185, -0.018, "FORWARD"], [925, 416, 173, -0.141, "FORWARD"], [898, 398, 169, -0.245, "FORWARD_LEFT"], [918, 412, 168, -0.552, "FORWARD_LEFT"], [907, 396, 157, -0.72, "FORWARD_LEFT"], [863, 391, 156, -0.742, "FORWARD_LEFT"], [863, 401, 157, -0.742, "FORWARD_LEFT"], [864, 445, 157, -0.75, "FORWARD_LEFT"], [907, 455, 158, -0.75, "FORWARD_LEFT"], [914, 485, 160, -0.75, "FORWARD_LEFT"], [924, 549, 165, -0.75, "FORWARD_LEFT"], [970, 573, 169, -0.75, "FORWARD_LEFT"], [958, 620, 174, -0.75, "FORWARD_LEFT"], [978, 625, 182, -0.75, "FORWARD_LEFT"], [983, 626, 187, -0.746, "FORWARD_LEFT"], [1005, 639, 187, -0.69, "FORWARD_LEFT"], [994, 638, 195, -0.541, "FORWARD_LEFT"], [939, 641, 198, -0.458, "FORWARD_LEFT"], [1007, 628, 207, -0.455, "FORWARD_LEFT"], [1012, 631, 207, -0.443, "FORWARD_LEFT"], [976, 625, 206, -0.443, "FORWARD_LEFT"], [1052, 611, 210, -0.432, "FORWARD_LEFT"], [1083, 617, 211, -0.432, "FORWARD_LEFT"], [1055, 597, 212, -0.432, "FORWARD_LEFT"], [1043, 594, 213, -0.443, "FORWARD_LEFT"], [1039, 579, 217, -0.443, "FORWARD_LEFT"], [1031, 569, 218, -0.443, "FORWARD_LEFT"], [1300, 558, 221, -0.443, "FORWARD_LEFT"], [990, 559, 226, -0.443, "FORWARD_LEFT"], [1081, 531, 230, -0.443, "FORWARD_LEFT"], [1068, 527, 231, -0.443, "FORWARD_LEFT"], [1020, 512, 246, -0.443, "FORWARD_LEFT"], [1044, 509, 250, -0.443, "FORWARD_LEFT"], [1082, 501, 254, -0.443, "FORWARD_LEFT"], [1136, 490, 258, -0.443, "FORWARD_LEFT"], [1055, 481, 264, -0.443, "FORWARD_LEFT"], [1067, 478, 269, -0.443, "FORWARD_LEFT"], [1135, 458, 279, -0.443, "FORWARD_LEFT"], [1057, 459, 286, -0.443, "FORWARD_LEFT"], [1123, 444, 290, -0.522, "FORWARD_LEFT"], [1205, 432, 313, -0.556, "FORWARD_LEFT"], [1300, 434, 319, -0.556, "FORWARD_LEFT"], [1256, 434, 336, -0.556, "FORWARD_LEFT"], [1300, 418, 370, -0.556, "FORWARD_LEFT"], [1300, 424, 370, -0.556, "FORWARD_LEFT"], [1300, 419, 371, -0.556, "FORWARD_LEFT"], [1300, 413, 371, -0.556, "FORWARD_LEFT"], [1300, 413, 367, -0.544, "FORWARD_LEFT"], [1300, 411, 362, -0.544, "FORWARD_LEFT"], [1300, 415, 345, -0.544, "FORWARD_LEFT"], [1300, 413, 341, -0.544, "FORWARD_LEFT"], [1300, 413, 337, -0.544, "FORWARD_LEFT"], [1300, 401, 320, -0.544, "FORWARD_LEFT"], [1300, 410, 313, -0.544, "FORWARD_LEFT"], [1300, 403, 308, -0.544, "FORWARD_LEFT"], [1300, 398, 295, -0.544, "FORWARD_LEFT"], [1300, 397, 289, -0.544, "FORWARD_LEFT"], [1300, 404, 281, -0.544, "FORWARD_LEFT"], [1300, 405, 276, -0.544, "FORWARD_LEFT"], [1300, 407, 270, -0.544, "FORWARD_LEFT"], [1300, 403, 260, -0.544, "FORWARD_LEFT"], [1300, 408, 258, -0.544, "FORWARD_LEFT"], [1300, 409, 254, -0.544, "FORWARD_LEFT"], [1300, 408, 245, -0.544, "FORWARD_LEFT"], [1300, 414, 240, -0.544, "FORWARD_LEFT"], [1300, 416, 241, -0.544, "FORWARD_LEFT"], [1300, 426, 238, -0.544, "FORWARD_LEFT"], [1300, 439, 235, -0.544, "FORWARD_LEFT"], [1300, 438, 230, -0.544, "FORWARD_LEFT"], [1300, 447, 228, -0.544, "FORWARD_LEFT"], [1300, 466, 227, -0.544, "FORWARD_LEFT"], [1300, 459, 220, -0.544, "FORWARD_LEFT"], [1300, 469, 217, -0.544, "FORWARD_LEFT"], [963, 467, 218, -0.544, "FORWARD_LEFT"], [942, 489, 216, -0.544, "FORWARD_LEFT"], [814, 517, 219, -0.544, "FORWARD_LEFT"], [781, 514, 217, -0.544, "FORWARD_LEFT"], [721, 545, 218, -0.544, "FORWARD_LEFT"], [676, 557, 219, -0.544, "FORWARD_LEFT"], [649, 562, 224, -0.47, "FORWARD_LEFT"], [620, 629, 223, -0.447, "FORWARD_LEFT"], [600, 659, 222, -0.432, "FORWARD_LEFT"], [581, 662, 222, -0.421, "FORWARD_LEFT"], [586, 714, 224, -0.41, "FORWARD_LEFT"], [559, 742, 224, -0.402, "FORWARD_LEFT"], [556, 799, 223, -0.38, "FORWARD_LEFT"], [547, 841, 223, -0.38, "FORWARD_LEFT"], [560, 850, 223, -0.38, "FORWARD_LEFT"], [554, 891, 221, -0.38, "FORWARD_LEFT"], [547, 878, 222, -0.38, "FORWARD_LEFT"], [539, 937, 223, -0.38, "FORWARD_LEFT"], [529, 1021, 223, -0.38, "FORWARD_LEFT"], [516, 1053, 226, -0.38, "FORWARD_LEFT"], [527, 1097, 224, -0.38, "FORWARD_LEFT"], [519, 1112, 224, -0.38, "FORWARD_LEFT"], [512, 1120, 225, -0.38, "FORWARD_LEFT"], [509, 1070, 229, -0.38, "FORWARD_LEFT"], [502, 1121, 229, -0.38, "FORWARD_LEFT"], [500, 1129, 229, -0.38, "FORWARD_LEFT"], [498, 1134, 232, -0.38, "FORWARD_LEFT"], [474, 1138, 234, -0.38, "FORWARD_LEFT"], [483, 1141, 236, -0.369, "FORWARD_LEFT"], [472, 1136, 238, -0.38, "FORWARD_LEFT"], [471, 1151, 241, -0.38, "FORWARD_LEFT"], [473, 1142, 240, -0.38, "FORWARD_LEFT"], [455, 1103, 251, -0.38, "FORWARD_LEFT"], [458, 1114, 248, -0.38, "FORWARD_LEFT"], [450, 1108, 250, -0.38, "FORWARD_LEFT"], [448, 1096, 253, -0.227, "FORWARD_LEFT"], [447, 1072, 256, -0.182, "FORWARD_LEFT"], [443, 1062, 256, -0.182, "FORWARD_LEFT"], [443, 1043, 259, -0.152, "FORWARD_LEFT"], [436, 1050, 256, -0.152, "FORWARD_LEFT"], [454, 1032, 260, -0.152, "FORWARD_LEFT"], [442, 1034, 267, -0.152, "FORWARD_LEFT"], [441, 987, 267, -0.152, "FORWARD_LEFT"], [434, 991, 267, -0.152, "FORWARD_LEFT"], [438, 975, 264, -0.152, "FORWARD_LEFT"], [426, 950, 273, -0.152, "FORWARD_LEFT"], [436, 953, 270, -0.152, "FORWARD_LEFT"], [422, 939, 274, -0.152, "FORWARD_LEFT"], [432, 912, 275, -0.152, "FORWARD_LEFT"], [423, 905, 283, -0.152, "FORWARD_LEFT"], [423, 880, 297, -0.152, "FORWARD_LEFT"], [432, 886, 297, -0.152, "FORWARD_LEFT"], [423, 865, 306, -0.152, "FORWARD_LEFT"], [420, 863, 310, -0.152, "FORWARD_LEFT"], [424, 842, 305, -0.152, "FORWARD_LEFT"], [420, 847, 303, -0.152, "FORWARD_LEFT"], [423, 817, 309, -0.152, "FORWARD_LEFT"], [416, 799, 313, -0.152, "FORWARD_LEFT"], [422, 791, 309, -0.152, "FORWARD_LEFT"], [426, 785, 318, -0.152, "FORWARD_LEFT"], [422, 783, 318, -0.152, "FORWARD_LEFT"], [435, 773, 316, -0.152, "FORWARD_LEFT"], [440, 752, 322, -0.152, "FORWARD_LEFT"], [438, 746, 328, -0.152, "FORWARD_LEFT"], [428, 727, 327, -0.152, "FORWARD_LEFT"], [447, 699, 324, -0.152, "FORWARD_LEFT"], [455, 687, 334, -0.152, "FORWARD_LEFT"], [459, 691, 331, -0.152, "FORWARD_LEFT"], [493, 664, 340, -0.152, "FORWARD_LEFT"], [545, 650, 343, -0.152, "FORWARD_LEFT"], [657, 631, 341, -0.152, "FORWARD_LEFT"], [846, 646, 346, -0.152, "FORWARD_LEFT"], [954, 607, 352, -0.152, "FORWARD_LEFT"], [945, 612, 350, -0.152, "FORWARD_LEFT"], [1000, 591, 362, -0.152, "FORWARD_LEFT"], [998, 581, 355, -0.152, "FORWARD_LEFT"], [964, 573, 369, -0.152, "FORWARD_LEFT"], [994, 562, 361, -0.152, "FORWARD_LEFT"], [930, 544, 380, -0.152, "FORWARD_LEFT"], [938, 530, 377, -0.152, "FORWARD_LEFT"], [928, 517, 384, -0.152, "FORWARD_LEFT"], [893, 495, 380, -0.152, "FORWARD_LEFT"], [900, 497, 393, -0.152, "FORWARD_LEFT"], [850, 470, 398, -0.559, "FORWARD_LEFT"], [857, 457, 417, -0.757, "FORWARD_LEFT"], [860, 455, 421, -0.817, "FORWARD_LEFT"], [862, 434, 432, -0.836, "FORWARD_LEFT"], [853, 438, 467, -0.832, "FORWARD_LEFT"], [837, 448, 471, -0.832, "FORWARD_LEFT"], [946, 435, 485, -0.832, "FORWARD_LEFT"], [953, 437, 487, -0.832, "FORWARD_LEFT"], [963, 439, 493, -0.832, "FORWARD_LEFT"], [1074, 440, 475, -0.828, "FORWARD_LEFT"], [1064, 441, 478, -0.739, "FORWARD_LEFT"], [1163, 438, 471, -0.705, "FORWARD_LEFT"], [1300, 450, 450, -0.675, "FORWARD_LEFT"], [1300, 450, 440, -0.593, "FORWARD_LEFT"], [1300, 446, 432, -0.548, "FORWARD_LEFT"], [1300, 451, 416, -0.481, "FORWARD_LEFT"], [1300, 443, 410, -0.466, "FORWARD_LEFT"], [1300, 445, 396, -0.466, "FORWARD_LEFT"], [1300, 430, 375, -0.466, "FORWARD_LEFT"], [1300, 422, 379, -0.466, "FORWARD_LEFT"], [1300, 415, 368, -0.466, "FORWARD_LEFT"], [1300, 412, 352, -0.466, "FORWARD_LEFT"], [1300, 415, 343, -0.466, "FORWARD_LEFT"], [1300, 406, 337, -0.477, "FORWARD_LEFT"], [1300, 405, 319, -0.477, "FORWARD_LEFT"], [1300, 407, 320, -0.477, "FORWARD_LEFT"], [1300, 396, 310, -0.477, "FORWARD_LEFT"], [1300, 391, 300, -0.477, "FORWARD_LEFT"], [1300, 389, 293, -0.477, "FORWARD_LEFT"], [1300, 388, 283, -0.466, "FORWARD_LEFT"], [1300, 383, 272, -0.477, "FORWARD_LEFT"], [1300, 383, 267, -0.477, "FORWARD_LEFT"], [1300, 386, 258, -0.477, "FORWARD_LEFT"], [1300, 381, 253, -0.477, "FORWARD_LEFT"], [1300, 379, 247, -0.477, "FORWARD_LEFT"], [1300, 377, 238, -0.477, "FORWARD_LEFT"], [1300, 381, 236, -0.477, "FORWARD_LEFT"], [1265, 373, 231, -0.477, "FORWARD_LEFT"], [1300, 371, 223, -0.477, "FORWARD_LEFT"], [1224, 374, 220, -0.69, "FORWARD_LEFT"], [1259, 387, 215, -0.753, "FORWARD_LEFT"], [1217, 400, 211, -0.798, "FORWARD_LEFT"], [1156, 403, 211, -0.821, "FORWARD_LEFT"], [1106, 421, 210, -0.832, "FORWARD_LEFT"], [828, 447, 211, -0.824, "FORWARD_LEFT"], [778, 466, 214, -0.828, "FORWARD_LEFT"], [715, 500, 217, -0.839, "FORWARD_LEFT"], [616, 521, 222, -0.839, "FORWARD_LEFT"], [581, 568, 226, -0.839, "FORWARD_LEFT"], [533, 579, 230, -0.746, "FORWARD_LEFT"], [457, 627, 235, -0.712, "FORWARD_LEFT"], [442, 659, 245, -0.656, "FORWARD_LEFT"], [420, 770, 253, -0.485, "FORWARD_LEFT"], [371, 887, 256, -0.395, "FORWARD_LEFT"], [368, 902, 260, -0.35, "FORWARD_LEFT"], [365, 994, 266, -0.204, "FORWARD_LEFT"], [371, 948, 263, -0.141, "FORWARD"], [364, 961, 259, -0.137, "FORWARD"], [364, 970, 257, -0.137, "FORWARD"], [376, 942, 253, -0.115, "FORWARD"], [386, 931, 252, -0.365, "FORWARD_LEFT"], [389, 941, 252, -0.436, "FORWARD_LEFT"], [385, 978, 251, -0.447, "FORWARD_LEFT"], [386, 998, 253, -0.447, "FORWARD_LEFT"], [383, 949, 257, -0.298, "FORWARD_LEFT"], [355, 1005, 260, -0.234, "FORWARD_LEFT"], [357, 1035, 266, -0.238, "FORWARD_LEFT"], [348, 1017, 267, -0.238, "FORWARD_LEFT"], [350, 999, 266, -0.238, "FORWARD_LEFT"], [360, 983, 269, -0.238, "FORWARD_LEFT"], [355, 988, 272, -0.238, "FORWARD_LEFT"], [351, 963, 273, -0.156, "FORWARD_LEFT"], [350, 964, 276, -0.148, "FORWARD"], [355, 966, 273, -0.16, "FORWARD_LEFT"], [364, 923, 264, 0.0, "FORWARD"], [363, 940, 269, 0.0, "FORWARD"], [361, 927, 269, -0.544, "FORWARD_LEFT"], [362, 900, 258, -0.768, "FORWARD_LEFT"], [363, 895, 259, -0.806, "FORWARD_LEFT"], [365, 886, 261, -0.828, "FORWARD_LEFT"], [338, 891, 272, -0.832, "FORWARD_LEFT"], [333, 868, 285, -0.832, "FORWARD_LEFT"], [323, 861, 305, -0.832, "FORWARD_LEFT"], [301, 856, 324, -0.832, "FORWARD_LEFT"], [295, 863, 328, -0.832, "FORWARD_LEFT"], [291, 846, 349, -0.832, "FORWARD_LEFT"], [273, 861, 361, -0.686, "FORWARD_LEFT"], [275, 844, 374, -0.585, "FORWARD_LEFT"], [265, 855, 385, -0.585, "FORWARD_LEFT"], [251, 837, 402, -0.574, "FORWARD_LEFT"], [242, 842, 411, -0.574, "FORWARD_LEFT"], [239, 825, 419, -0.574, "FORWARD_LEFT"], [225, 827, 445, -0.574, "FORWARD_LEFT"], [222, 827, 470, -0.574, "FORWARD_LEFT"], [212, 814, 500, -0.574, "FORWARD_LEFT"], [201, 823, 525, -0.574, "FORWARD_LEFT"], [200, 816, 556, -0.526, "FORWARD_LEFT"], [193, 803, 570, 0.0, "FORWARD"], [181, 791, 608, 0.0, "FORWARD"], [183, 792, 616, 0.0, "FORWARD"], [177, 783, 615, 0.0, "FORWARD"], [172, 783, 611, 0.0, "FORWARD"], [171, 752, 628, 0.0, "FORWARD"], [168, 752, 636, 0.0, "FORWARD"], [161, 736, 658, 0.0, "FORWARD"], [159, 708, 649, 0.0, "FORWARD"], [154, 695, 661, 0.1, "FORWARD"], [149, 703, 665, 0.13, "FORWARD"], [141, 674, 671, 0.13, "FORWARD"], [139, 664, 662, 0.13, "FORWARD"], [134, 645, 661, 0.13, "FORWARD"], [133, 648, 671, 0.141, "FORWARD"], [130, 619, 653, 0.268, "FORWARD_RIGHT"], [127, 601, 643, 0.279, "FORWARD_RIGHT"], [121, 600, 642, 0.279, "FORWARD_RIGHT"], [124, 585, 636, 0.279, "FORWARD_RIGHT"], [125, 560, 626, 0.279, "FORWARD_RIGHT"], [125, 548, 622, 0.279, "FORWARD_RIGHT"], [128, 542, 605, 0.279, "FORWARD_RIGHT"], [135, 521, 606, 0.279, "FORWARD_RIGHT"], [155, 511, 594, 0.279, "FORWARD_RIGHT"], [189, 500, 589, 0.268, "FORWARD_RIGHT"], [1300, 474, 561, 0.268, "FORWARD_RIGHT"], [953, 477, 567, 0.268, "FORWARD_RIGHT"], [1300, 462, 559, 0.268, "FORWARD_RIGHT"], [836, 436, 557, -0.021, "FORWARD"], [834, 430, 550, -0.193, "FORWARD_LEFT"], [771, 412, 532, -0.182, "FORWARD_LEFT"], [793, 396, 514, -0.197, "FORWARD_LEFT"], [747, 387, 494, -0.279, "FORWARD_LEFT"], [793, 377, 475, -0.365, "FORWARD_LEFT"], [718, 355, 457, -0.38, "FORWARD_LEFT"], [718, 355, 457, -0.402, "FORWARD_LEFT"], [675, 342, 410, -0.425, "FORWARD_LEFT"], [701, 319, 391, -0.533, "FORWARD_LEFT"], [695, 313, 375, -0.612, "FORWARD_LEFT"], [641, 306, 361, -0.615, "FORWARD_LEFT"], [652, 286, 329, -0.615, "FORWARD_LEFT"], [682, 280, 324, -0.724, "FORWARD_LEFT"], [689, 274, 309, -0.851, "FORWARD_LEFT"], [729, 269, 289, -0.966, "FORWARD_LEFT"], [644, 267, 281, -0.966, "FORWARD_LEFT"], [792, 269, 280, -0.966, "FORWARD_LEFT"], [1300, 267, 268, -0.955, "FORWARD_LEFT"], [1300, 272, 269, -0.955, "FORWARD_LEFT"], [1300, 270, 268, -0.955, "FORWARD_LEFT"], [1089, 268, 260, -0.955, "FORWARD_LEFT"], [1300, 274, 259, -0.944, "FORWARD_LEFT"], [1300, 282, 256, -0.895, "FORWARD_LEFT"], [1300, 284, 253, -0.813, "FORWARD_LEFT"], [1300, 283, 249, -0.727, "FORWARD_LEFT"], [1300, 289, 247, -0.615, "FORWARD_LEFT"], [1300, 294, 236, -0.615, "FORWARD_LEFT"], [1300, 290, 233, -0.615, "FORWARD_LEFT"], [1300, 286, 230, -0.615, "FORWARD_LEFT"], [1300, 290, 217, -0.615, "FORWARD_LEFT"], [1300, 288, 214, -0.615, "FORWARD_LEFT"], [1300, 292, 204, -0.615, "FORWARD_LEFT"], [1300, 284, 200, -0.619, "FORWARD_LEFT"], [1300, 294, 195, -0.727, "FORWARD_LEFT"], [1300, 295, 187, -0.727, "FORWARD_LEFT"], [1300, 301, 186, -0.727, "FORWARD_LEFT"], [1300, 307, 185, -0.727, "FORWARD_LEFT"], [1300, 324, 184, -0.727, "FORWARD_LEFT"], [1300, 326, 183, -0.727, "FORWARD_LEFT"], [1300, 340, 181, -0.727, "FORWARD_LEFT"], [1083, 358, 182, -0.727, "FORWARD_LEFT"], [855, 377, 179, -0.727, "FORWARD_LEFT"], [1300, 405, 183, -0.72, "FORWARD_LEFT"], [631, 414, 184, -0.66, "FORWARD_LEFT"], [651, 444, 185, -0.544, "FORWARD_LEFT"], [607, 464, 189, -0.544, "FORWARD_LEFT"], [566, 455, 187, -0.544, "FORWARD_LEFT"], [549, 501, 184, -0.544, "FORWARD_LEFT"], [534, 517, 186, -0.544, "FORWARD_LEFT"], [509, 567, 187, -0.544, "FORWARD_LEFT"], [478, 558, 190, -0.544, "FORWARD_LEFT"], [471, 532, 190, -0.544, "FORWARD_LEFT"], [449, 658, 197, -0.544, "FORWARD_LEFT"], [444, 639, 195, -0.544, "FORWARD_LEFT"], [422, 642, 196, -0.544, "FORWARD_LEFT"], [413, 704, 197, -0.544, "FORWARD_LEFT"], [396, 845, 200, -0.544, "FORWARD_LEFT"], [380, 1300, 207, -0.533, "FORWARD_LEFT"], [366, 1199, 212, -0.417, "FORWARD_LEFT"], [358, 1222, 223, -0.309, "FORWARD_LEFT"], [355, 1300, 230, -0.287, "FORWARD_LEFT"], [359, 1300, 220, -0.287, "FORWARD_LEFT"], [348, 1300, 221, -0.204, "FORWARD_LEFT"], [351, 1300, 223, -0.122, "FORWARD"], [351, 1204, 215, -0.133, "FORWARD"], [352, 1212, 219, -0.133, "FORWARD"], [360, 1260, 219, -0.133, "FORWARD"], [356, 1256, 218, -0.133, "FORWARD"], [364, 1300, 216, -0.133, "FORWARD"], [364, 1161, 219, -0.133, "FORWARD"], [366, 1135, 216, -0.122, "FORWARD"], [371, 1300, 216, -0.085, "FORWARD"], [376, 1300, 213, -0.036, "FORWARD"], [373, 1153, 211, -0.036, "FORWARD"], [374, 1105, 213, -0.085, "FORWARD"], [374, 1121, 212, -0.201, "FORWARD_LEFT"], [371, 1131, 213, -0.227, "FORWARD_LEFT"], [383, 1086, 209, -0.283, "FORWARD_LEFT"], [374, 1102, 217, -0.29, "FORWARD_LEFT"], [370, 1095, 218, -0.29, "FORWARD_LEFT"], [375, 1074, 215, -0.29, "FORWARD_LEFT"], [369, 1073, 222, -0.29, "FORWARD_LEFT"], [364, 1042, 222, -0.29, "FORWARD_LEFT"], [366, 1079, 220, -0.29, "FORWARD_LEFT"], [365, 1027, 226, -0.29, "FORWARD_LEFT"], [359, 1033, 225, -0.29, "FORWARD_LEFT"], [359, 1008, 228, -0.29, "FORWARD_LEFT"], [364, 1009, 231, -0.29, "FORWARD_LEFT"], [357, 965, 231, -0.29, "FORWARD_LEFT"], [355, 955, 241, -0.29, "FORWARD_LEFT"], [354, 961, 238, -0.29, "FORWARD_LEFT"], [348, 903, 245, -0.29, "FORWARD_LEFT"], [351, 942, 254, -0.29, "FORWARD_LEFT"], [345, 975, 252, -0.29, "FORWARD_LEFT"], [346, 906, 252, -0.29, "FORWARD_LEFT"], [341, 900, 252, -0.29, "FORWARD_LEFT"], [333, 902, 261, -0.305, "FORWARD_LEFT"], [330, 882, 262, -0.316, "FORWARD_LEFT"], [337, 858, 263, -0.421, "FORWARD_LEFT"], [321, 871, 268, -0.425, "FORWARD_LEFT"], [319, 869, 282, -0.425, "FORWARD_LEFT"], [314, 836, 279, -0.425, "FORWARD_LEFT"], [314, 826, 289, -0.279, "FORWARD_LEFT"], [314, 813, 297, -0.268, "FORWARD_LEFT"]];
+    const totalFrames = telemetryData.length;
+    const samplingFps = 15.0; // 15 Hz telemetry recording
+
+    // Three.js Core Objects
+    let scene, camera, renderer, controls;
+    let carGroup, frontLeftWheel, frontRightWheel, steerArrow;
+    let beamLeft, beamCenter, beamRight;
+    let impactLeft, impactCenter, impactRight;
+    let wallCenterMesh, wallLeftMesh, wallRightMesh;
+    let curbCenterMesh, curbLeftMesh, curbRightMesh;
+    let trackAsphalt, trackGrid;
+
+    // Playback state
+    let isPlaying = true;
+    let currentFrame = 0;
+    let playbackSpeed = 1.0;
+    let lastTimestamp = 0;
+    let frameAccumulator = 0;
+
+    // Sensor angles: Left = +40°, Center = 0°, Right = -40°
+    const LEFT_ANGLE_RAD = (40.0 * Math.PI) / 180.0;
+    const CENTER_ANGLE_RAD = 0.0;
+    const RIGHT_ANGLE_RAD = (-40.0 * Math.PI) / 180.0;
+
+    // Scaling: 1 unit in Three.js = 100 mm (0.1 meter)
+    const SCALE = 0.01;
+
+    // Track smoothing buffers for continuous realistic walls
+    let smoothL = { x: -3.0, z: 2.0 };
+    let smoothC = { x:  0.0, z: 6.0 };
+    let smoothR = { x:  3.0, z: 2.0 };
+
+    function init3D() {
+      const container = document.getElementById('webgl-canvas');
+
+      // 1. Scene & Light Background
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0xf1f5f9); // Light slate
+      scene.fog = new THREE.Fog(0xf1f5f9, 14, 32);
+
+      camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+      setCameraView('chase');
+
+      // 2. Renderer with soft shadows
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      container.appendChild(renderer.domElement);
+
+      // 3. OrbitControls
+      controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.06;
+      controls.maxPolarAngle = Math.PI / 2 - 0.04; // Keep camera above road
+      controls.target.set(0, 0.4, 1.6);
+
+      // 4. Studio Lighting for Light Theme
+      const hemiLight = new THREE.HemisphereLight(0xffffff, 0xe2e8f0, 0.85);
+      hemiLight.position.set(0, 20, 0);
+      scene.add(hemiLight);
+
+      const sunLight = new THREE.DirectionalLight(0xffffff, 0.9);
+      sunLight.position.set(8, 16, 6);
+      sunLight.castShadow = true;
+      sunLight.shadow.mapSize.width = 2048;
+      sunLight.shadow.mapSize.height = 2048;
+      sunLight.shadow.camera.near = 0.5;
+      sunLight.shadow.camera.far = 30;
+      sunLight.shadow.camera.left = -6;
+      sunLight.shadow.camera.right = 6;
+      sunLight.shadow.camera.top = 10;
+      sunLight.shadow.camera.bottom = -4;
+      sunLight.shadow.bias = -0.0005;
+      scene.add(sunLight);
+
+      // 5. Construct Environment & Track
+      buildTrackSurface();
+      buildRadarGrid();
+      buildTrackWalls();
+      buildCarModel();
+      buildLaserBeams();
+
+      window.addEventListener('resize', onWindowResize, false);
+      requestAnimationFrame(animate);
+    }
+
+    // Asphalt track road surface with moving motion stripes
+    function buildTrackSurface() {
+      // Ground plane (infinite grey road)
+      const roadGeo = new THREE.PlaneGeometry(30, 40);
+      const roadMat = new THREE.MeshStandardMaterial({
+        color: 0xe2e8f0, // Light concrete / track surface
+        roughness: 0.9,
+        metalness: 0.05
+      });
+      const road = new THREE.Mesh(roadGeo, roadMat);
+      road.rotation.x = -Math.PI / 2;
+      road.position.set(0, -0.01, 5);
+      road.receiveShadow = true;
+      scene.add(road);
+
+      // Drivable lane surface (darker asphalt strip under car corridor)
+      const asphaltGeo = new THREE.PlaneGeometry(8, 25);
+      const asphaltMat = new THREE.MeshStandardMaterial({
+        color: 0xdbeafe, // Soft track tint
+        roughness: 0.8,
+      });
+      trackAsphalt = new THREE.Mesh(asphaltGeo, asphaltMat);
+      trackAsphalt.rotation.x = -Math.PI / 2;
+      trackAsphalt.position.set(0, 0.002, 6);
+      trackAsphalt.receiveShadow = true;
+      scene.add(trackAsphalt);
+    }
+
+    // Clean Radar Distance Rings
+    function buildRadarGrid() {
+      // Subtle distance rings: 300, 600, 900, 1200 mm
+      [300, 600, 900, 1200].forEach(r_mm => {
+        const r = r_mm * SCALE;
+        const ringGeo = new THREE.RingGeometry(r - 0.012, r + 0.012, 80);
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: 0x94a3b8,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.4
+        });
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.set(0, 0.005, 0);
+        scene.add(ring);
+      });
+
+      // Moving track center dashes to convey forward velocity
+      trackGrid = new THREE.GridHelper(24, 24, 0x94a3b8, 0xcbd5e1);
+      trackGrid.position.set(0, 0.006, 6);
+      scene.add(trackGrid);
+    }
+
+    // Helper to position and orient a 3D wall segment between two (X, Z) endpoints
+    function setWallSegment(mesh, curbMesh, p1, p2, thickness = 0.25, height = 0.75) {
+      const dx = p2.x - p1.x;
+      const dz = p2.z - p1.z;
+      const len = Math.hypot(dx, dz);
+      const angle = Math.atan2(dx, dz);
+
+      // Midpoint
+      const midX = (p1.x + p2.x) / 2;
+      const midZ = (p1.z + p2.z) / 2;
+
+      // Position Wall Barrier
+      mesh.position.set(midX, height / 2, midZ);
+      mesh.rotation.y = angle;
+      mesh.scale.set(thickness, height, Math.max(0.01, len));
+
+      // Position racing curb strip at base
+      if (curbMesh) {
+        curbMesh.position.set(midX, 0.06, midZ);
+        curbMesh.rotation.y = angle;
+        curbMesh.scale.set(thickness + 0.2, 0.12, Math.max(0.01, len));
+      }
+    }
+
+    // Construct realistic 3D Track Wall Barriers
+    function buildTrackWalls() {
+      const wallMat = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        roughness: 0.45,
+        metalness: 0.1,
+      });
+
+      const curbMatCenter = new THREE.MeshStandardMaterial({ color: 0x16a34a, roughness: 0.4 }); // Green center curb
+      const curbMatLeft   = new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.4 }); // Blue left curb
+      const curbMatRight  = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.4 }); // Red right curb
+
+      // Base unit box geometries for walls (scaled and transformed dynamically)
+      const unitWallGeo = new THREE.BoxGeometry(1, 1, 1);
+      const unitCurbGeo = new THREE.BoxGeometry(1, 1, 1);
+
+      // 1. Center wall at front detected point
+      wallCenterMesh = new THREE.Mesh(unitWallGeo, wallMat);
+      wallCenterMesh.castShadow = true;
+      wallCenterMesh.receiveShadow = true;
+      scene.add(wallCenterMesh);
+
+      curbCenterMesh = new THREE.Mesh(unitCurbGeo, curbMatCenter);
+      curbCenterMesh.receiveShadow = true;
+      scene.add(curbCenterMesh);
+
+      // 2. Left lateral wall (aligned along left side passing through left detected point)
+      wallLeftMesh = new THREE.Mesh(unitWallGeo, wallMat);
+      wallLeftMesh.castShadow = true;
+      wallLeftMesh.receiveShadow = true;
+      scene.add(wallLeftMesh);
+
+      curbLeftMesh = new THREE.Mesh(unitCurbGeo, curbMatLeft);
+      curbLeftMesh.receiveShadow = true;
+      scene.add(curbLeftMesh);
+
+      // 3. Right lateral wall (aligned along right side passing through right detected point)
+      wallRightMesh = new THREE.Mesh(unitWallGeo, wallMat);
+      wallRightMesh.castShadow = true;
+      wallRightMesh.receiveShadow = true;
+      scene.add(wallRightMesh);
+
+      curbRightMesh = new THREE.Mesh(unitCurbGeo, curbMatRight);
+      curbRightMesh.receiveShadow = true;
+      scene.add(curbRightMesh);
+    }
+
+    // Construct detailed RC Car 3D model
+    function buildCarModel() {
+      carGroup = new THREE.Group();
+
+      // Dimensions in Three.js units (160mm x 110mm)
+      const carLength = 1.6;
+      const carWidth = 1.1;
+      const carHeight = 0.35;
+
+      // Chassis Body (Deep Royal Blue)
+      const bodyGeo = new THREE.BoxGeometry(carWidth, carHeight, carLength);
+      const bodyMat = new THREE.MeshStandardMaterial({
+        color: 0x1e40af,
+        roughness: 0.25,
+        metalness: 0.6,
+      });
+      const body = new THREE.Mesh(bodyGeo, bodyMat);
+      body.position.y = 0.28;
+      body.castShadow = true;
+      body.receiveShadow = true;
+      carGroup.add(body);
+
+      // Electronics / Battery Pack
+      const cabinGeo = new THREE.BoxGeometry(carWidth * 0.72, carHeight * 0.85, carLength * 0.55);
+      const cabinMat = new THREE.MeshStandardMaterial({
+        color: 0x334155,
+        roughness: 0.4,
+        metalness: 0.5
+      });
+      const cabin = new THREE.Mesh(cabinGeo, cabinMat);
+      cabin.position.set(0, 0.44, -0.1);
+      cabin.castShadow = true;
+      carGroup.add(cabin);
+
+      // ToF Sensor Bar Front Mount (Gold / Brass accent)
+      const barGeo = new THREE.BoxGeometry(carWidth * 0.9, 0.08, 0.12);
+      const barMat = new THREE.MeshStandardMaterial({ color: 0x0284c7 });
+      const bar = new THREE.Mesh(barGeo, barMat);
+      bar.position.set(0, 0.28, carLength / 2 + 0.06);
+      carGroup.add(bar);
+
+      // Wheels
+      const wheelGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.16, 24);
+      wheelGeo.rotateZ(Math.PI / 2);
+      const wheelMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8 });
+
+      // Rear wheels (fixed)
+      const rearL = new THREE.Mesh(wheelGeo, wheelMat);
+      rearL.position.set(-carWidth / 2 - 0.1, 0.2, -0.45);
+      rearL.castShadow = true;
+      carGroup.add(rearL);
+
+      const rearR = new THREE.Mesh(wheelGeo, wheelMat);
+      rearR.position.set(carWidth / 2 + 0.1, 0.2, -0.45);
+      rearR.castShadow = true;
+      carGroup.add(rearR);
+
+      // Front wheels (steerable)
+      frontLeftWheel = new THREE.Group();
+      const fl = new THREE.Mesh(wheelGeo, wheelMat);
+      fl.castShadow = true;
+      frontLeftWheel.add(fl);
+      frontLeftWheel.position.set(-carWidth / 2 - 0.1, 0.2, 0.45);
+      carGroup.add(frontLeftWheel);
+
+      frontRightWheel = new THREE.Group();
+      const fr = new THREE.Mesh(wheelGeo, wheelMat);
+      fr.castShadow = true;
+      frontRightWheel.add(fr);
+      frontRightWheel.position.set(carWidth / 2 + 0.1, 0.2, 0.45);
+      carGroup.add(frontRightWheel);
+
+      // Steering Direction Arrow on top of the car
+      const arrowGeo = new THREE.ConeGeometry(0.12, 0.4, 16);
+      arrowGeo.rotateX(Math.PI / 2);
+      const arrowMat = new THREE.MeshStandardMaterial({ color: 0x16a34a });
+      steerArrow = new THREE.Mesh(arrowGeo, arrowMat);
+      steerArrow.position.set(0, 0.72, 0.55);
+      carGroup.add(steerArrow);
+
+      scene.add(carGroup);
+    }
+
+    // Construct 3 dynamic laser rays + impact markers
+    function buildLaserBeams() {
+      const createBeam = (colorHex) => {
+        const geo = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(0, 0, 0),
+          new THREE.Vector3(0, 0, 1)
+        ]);
+        const mat = new THREE.LineBasicMaterial({
+          color: colorHex,
+          linewidth: 3,
+          transparent: true,
+          opacity: 0.9
+        });
+        const line = new THREE.Line(geo, mat);
+        scene.add(line);
+        return line;
+      };
+
+      const createImpact = (colorHex) => {
+        const geo = new THREE.CylinderGeometry(0.08, 0.08, 0.75, 16);
+        const mat = new THREE.MeshStandardMaterial({
+          color: colorHex,
+          emissive: colorHex,
+          emissiveIntensity: 0.3
+        });
+        const cylinder = new THREE.Mesh(geo, mat);
+        cylinder.position.y = 0.375;
+        scene.add(cylinder);
+        return cylinder;
+      };
+
+      beamLeft = createBeam(0x0284c7);    // Blue Left
+      beamCenter = createBeam(0x16a34a);  // Green Center
+      beamRight = createBeam(0xdc2626);   // Red Right
+
+      impactLeft = createImpact(0x0284c7);
+      impactCenter = createImpact(0x16a34a);
+      impactRight = createImpact(0xdc2626);
+    }
+
+    // Update scene state based on telemetry frame
+    function updateFrame(frameIndex) {
+      const row = telemetryData[frameIndex];
+      const dl_mm = row[0];
+      const dc_mm = row[1];
+      const dr_mm = row[2];
+      const steer = row[3];
+      const direction = row[4];
+
+      // Convert mm to 3D coordinates (Forward = +Z, Right = +X, Left = -X)
+      const origin = new THREE.Vector3(0, 0.28, 0.86);
+
+      const targetL = new THREE.Vector3(
+        -dl_mm * SCALE * Math.sin(LEFT_ANGLE_RAD),
+        0.28,
+        origin.z + dl_mm * SCALE * Math.cos(LEFT_ANGLE_RAD)
+      );
+
+      const targetC = new THREE.Vector3(
+        0,
+        0.28,
+        origin.z + dc_mm * SCALE * Math.cos(CENTER_ANGLE_RAD)
+      );
+
+      const targetR = new THREE.Vector3(
+        -dr_mm * SCALE * Math.sin(RIGHT_ANGLE_RAD), // -(-angle) = +X (right)
+        0.28,
+        origin.z + dr_mm * SCALE * Math.cos(RIGHT_ANGLE_RAD)
+      );
+
+      // Smooth interpolation for walls to avoid jerky visual jumps
+      const lerpFactor = 0.35;
+      smoothL.x += (targetL.x - smoothL.x) * lerpFactor;
+      smoothL.z += (targetL.z - smoothL.z) * lerpFactor;
+
+      smoothC.x += (targetC.x - smoothC.x) * lerpFactor;
+      smoothC.z += (targetC.z - smoothC.z) * lerpFactor;
+
+      smoothR.x += (targetR.x - smoothR.x) * lerpFactor;
+      smoothR.z += (targetR.z - smoothR.z) * lerpFactor;
+
+      // 1. Update Laser Beams geometry
+      beamLeft.geometry.setFromPoints([origin, targetL]);
+      beamCenter.geometry.setFromPoints([origin, targetC]);
+      beamRight.geometry.setFromPoints([origin, targetR]);
+
+      impactLeft.position.set(targetL.x, 0.375, targetL.z);
+      impactCenter.position.set(targetC.x, 0.375, targetC.z);
+      impactRight.position.set(targetR.x, 0.375, targetR.z);
+
+      // 2. Track Walls Setup (Center wall + Left wall + Right wall, unlinked):
+      // A. Center Wall centered at front detected point (smoothC.x, smoothC.z)
+      const centerHalfWidth = 1.0;
+      const pCenterL = { x: smoothC.x - centerHalfWidth, z: smoothC.z };
+      const pCenterR = { x: smoothC.x + centerHalfWidth, z: smoothC.z };
+      setWallSegment(wallCenterMesh, curbCenterMesh, pCenterL, pCenterR, 0.25, 0.75);
+
+      // B. Left Lateral Wall: starts from the rear and ends exactly on the left detected point (smoothL)
+      const wallBackLength = 4.0;
+      const pLeftFront = { x: smoothL.x, z: smoothL.z };
+      const pLeftBack  = { x: smoothL.x - 0.2, z: smoothL.z - wallBackLength };
+      setWallSegment(wallLeftMesh, curbLeftMesh, pLeftBack, pLeftFront, 0.25, 0.75);
+
+      // C. Right Lateral Wall: starts from the rear and ends exactly on the right detected point (smoothR)
+      const pRightFront = { x: smoothR.x, z: smoothR.z };
+      const pRightBack  = { x: smoothR.x + 0.2, z: smoothR.z - wallBackLength };
+      setWallSegment(wallRightMesh, curbRightMesh, pRightBack, pRightFront, 0.25, 0.75);
+
+      // 3. Front wheels steering rotation (steer: -1.0 left to +1.0 right)
+      const wheelSteerAngle = -steer * 0.42; // radians (~24 deg)
+      frontLeftWheel.rotation.y = wheelSteerAngle;
+      frontRightWheel.rotation.y = wheelSteerAngle;
+      steerArrow.rotation.y = wheelSteerAngle;
+
+      // 4. Update UI HUD elements
+      document.getElementById('txt-left').textContent = `${dl_mm} mm`;
+      document.getElementById('txt-center').textContent = `${dc_mm} mm`;
+      document.getElementById('txt-right').textContent = `${dr_mm} mm`;
+      document.getElementById('txt-steer').textContent = steer >= 0 ? `+${steer.toFixed(2)}` : steer.toFixed(2);
+
+      const badge = document.getElementById('badge-direction');
+      badge.textContent = direction;
+      if (direction === 'FORWARD') {
+        badge.style.background = '#f0fdf4';
+        badge.style.borderColor = '#86efac';
+        badge.style.color = '#15803d';
+        steerArrow.material.color.setHex(0x16a34a);
+      } else if (direction === 'FORWARD_LEFT') {
+        badge.style.background = '#eff6ff';
+        badge.style.borderColor = '#93c5fd';
+        badge.style.color = '#1d4ed8';
+        steerArrow.material.color.setHex(0x0284c7);
+      } else {
+        badge.style.background = '#fef2f2';
+        badge.style.borderColor = '#fca5a5';
+        badge.style.color = '#b91c1c';
+        steerArrow.material.color.setHex(0xdc2626);
+      }
+
+      // Timeline & time label
+      document.getElementById('timeline').value = frameIndex;
+      const elapsedSec = (frameIndex / samplingFps).toFixed(1);
+      const totalSec = (totalFrames / samplingFps).toFixed(1);
+      document.getElementById('time-display').textContent = `${elapsedSec}s / ${totalSec}s`;
+    }
+
+    // Animation & Playback Loop
+    function animate(timestamp) {
+      requestAnimationFrame(animate);
+
+      if (!lastTimestamp) lastTimestamp = timestamp;
+      const deltaSec = (timestamp - lastTimestamp) / 1000.0;
+      lastTimestamp = timestamp;
+
+      if (isPlaying) {
+        frameAccumulator += deltaSec * samplingFps * playbackSpeed;
+        const framesToAdvance = Math.floor(frameAccumulator);
+        if (framesToAdvance > 0) {
+          currentFrame = (currentFrame + framesToAdvance) % totalFrames;
+          frameAccumulator -= framesToAdvance;
+          updateFrame(currentFrame);
+        }
+
+        // Simulated floor motion
+        if (trackGrid) {
+          trackGrid.position.z = ((trackGrid.position.z - deltaSec * 3.5 * playbackSpeed) % 1.0) + 6.0;
+        }
+      }
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    // UI Interactive Functions
+    function togglePlay() {
+      isPlaying = !isPlaying;
+      const btn = document.getElementById('btn-play');
+      btn.textContent = isPlaying ? '⏸ Pausa' : '▶ Play';
+      btn.classList.toggle('active', !isPlaying);
+    }
+
+    function seekFrame(idx) {
+      currentFrame = Math.max(0, Math.min(totalFrames - 1, idx));
+      frameAccumulator = 0;
+      updateFrame(currentFrame);
+    }
+
+    function stepFrame(delta) {
+      seekFrame(currentFrame + delta);
+    }
+
+    function setSpeed(val) {
+      playbackSpeed = parseFloat(val);
+    }
+
+    document.getElementById('timeline').addEventListener('input', function(e) {
+      seekFrame(parseInt(e.target.value));
+    });
+
+    // Camera Preset Views
+    function setCameraView(preset) {
+      document.querySelectorAll('.btn-view').forEach(btn => btn.classList.remove('active'));
+      const activeBtn = document.getElementById('btn-view-' + preset);
+      if (activeBtn) activeBtn.classList.add('active');
+
+      if (preset === 'chase') {
+        // Behind and slightly above looking forward
+        camera.position.set(0, 3.2, -3.2);
+        if (controls) controls.target.set(0, 0.4, 2.2);
+      } else if (preset === 'top') {
+        // Pure top-down 2D radar view
+        camera.position.set(0, 9.2, 1.6);
+        if (controls) controls.target.set(0, 0, 1.6);
+      } else if (preset === 'front') {
+        // First-person bumper viewpoint
+        camera.position.set(0, 0.75, 0.9);
+        if (controls) controls.target.set(0, 0.5, 5.0);
+      }
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    // Boot
+    window.onload = () => {
+      init3D();
+      updateFrame(0);
+    };
+  </script>
+</body>
+</html>

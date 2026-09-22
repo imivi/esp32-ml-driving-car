@@ -154,6 +154,14 @@ style: |
     display: block;
     margin: 0 auto 6px auto;
   }
+  .sim-iframe {
+    width: 100%;
+    height: 480px;
+    border: 1.5px solid #cbd5e1;
+    border-radius: 12px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+    background: #f8fafc;
+  }
 ---
 
 <!-- Slide 1: Title Slide -->
@@ -486,6 +494,26 @@ Presenter Notes:
 Presenter Notes:
 - Spiegare l'apprendimento per imitazione: la macchina apprende la policy osservando le azioni di un pilota umano.
 - Sottolineare l'igiene dei dati: rimuovere timestamp e velocità permette al modello di mappare puramente la geometria dello spazio sulle decisioni di guida.
+-->
+
+---
+
+<!-- Slide 10: Interactive 3D Telemetry Simulator -->
+
+## Simulazione 3D Interattiva della Telemetria di Guida
+
+<div style="text-align: center;">
+  <iframe src="radar_3d.html" class="sim-iframe" allow="fullscreen"></iframe>
+  <p style="font-size: 13px; color: #64748b; margin-top: 6px; margin-bottom: 0;">
+    🎮 <strong>Simulatore WebGL 3D:</strong> Riproduzione dinamica della telemetria registrata. Veicolo fisso al centro, pareti del tracciato e fasci laser 3× ToF in tempo reale.
+  </p>
+</div>
+
+<!--
+Presenter Notes:
+- Mostrare la simulazione 3D interattiva direttamente nella slide: evidenziare l'orientamento egocentrico del veicolo.
+- Usare i controlli della timeline: mostrare come i 3 fasci laser ToF leggono l'avvicinarsi della curva e come le ruote dell'auto reagiscono sterzando.
+- Dimostrare la possibilità di cambiare visuale (Inseguimento 3D, Top-Down 2D, Muso Auto) e ruotare con il mouse.
 -->
 
 ---

@@ -46,8 +46,8 @@ jobs:
 
       - name: Copy media assets
         run: |
-          # Copy all media assets required by presentation (images, diagrams, video)
-          cp docs/*.jpg docs/*.png docs/*.svg docs/*.pdf docs/*.mp4 _site/ 2>/dev/null || true
+          # Copy all media assets required by presentation (images, diagrams, video, 3D player HTML)
+          cp docs/*.jpg docs/*.png docs/*.svg docs/*.pdf docs/*.mp4 docs/radar_3d.html _site/ 2>/dev/null || true
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
