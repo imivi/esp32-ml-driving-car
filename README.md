@@ -12,21 +12,13 @@ The result is an autonomous car that learns from the track design and the driver
 
 Instead of running ML inference directly on the ESP32, the car offloads the heavy lifting to a host PC and uses **ESP-NOW** for low-latency wireless telemetry and motor commands:
 
-```
-[Xbox Controller] (Teleoperation / Safety Override)
-       │
-       ▼
-[Host PC: Python] (manual_control.py / autopilot.py)
-       │ ▲
-  (USB Serial @ 115200 baud)
-       ▼ │
-[ESP32 WROOM Transmitter Dongle]
-       │ ▲
-  (Wireless ESP-NOW Protocol @ ~30–50 Hz)
-       ▼ │
-[ESP32 LOLIN32 Car Receiver] ──> [TB6612FNG Driver] ──> [DC Gear Motors]
-       ▲
-       └── [3x VL53L0X ToF LiDAR Sensors] (Left, Center, Right)
+```mermaid
+flowchart TD
+    Xbox["Xbox Controller (Teleoperation / Safety Override)"] --> PC["Host PC: Python (manual_control.py / autopilot.py)"]
+    PC <-->|"USB Serial @ 115200 baud"| Dongle["ESP32 WROOM Transmitter Dongle"]
+    Dongle <-->|"Wireless ESP-NOW @ ~30–50 Hz"| Car["ESP32 LOLIN32 Car Receiver"]
+    Car --> Driver["TB6612FNG Driver"] --> Motors["DC Gear Motors"]
+    Sensors["3x VL53L0X ToF LiDAR Sensors (Left, Center, Right)"] --> Car
 ```
 
 1. **Car Node (WEMOS LOLIN32 v1):** Reads three forward-facing VL53L0X Time-of-Flight distance sensors over I2C, sends telemetry packets over ESP-NOW, and drives the motors through a TB6612FNG dual H-bridge.
