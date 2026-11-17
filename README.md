@@ -1,12 +1,16 @@
 # ESP32 Machine Learning Autonomous RC Car
 
-An end-to-end behavioral cloning (imitation learning) robotics platform. The car is remotely piloted via an Xbox controller while streaming real-time Time-of-Flight LiDAR telemetry to a PC. The recorded telemetry trains an ensemble Random Forest classifier to autonomously navigate and steer around a walled track without human intervention.
+This is a behavioral cloning (imitation learning) RC car project. You drive the car around a walled track with an Xbox controller while it streams live Time-of-Flight LiDAR readings back to your PC. From there, a Random Forest classifier learns from your driving and takes over the steering on its own.
+
+The result is an autonomous car that learns from the track design and the driver's piloting patterns.
+
+![Side view of the ESP32 autonomous RC car](https://github.com/imivi/esp32-ml-driving-car/raw/main/docs/img_side.jpg)
 
 ---
 
-## System Architecture
+## How It Works
 
-The vehicle delegates compute-heavy machine learning inference to a host PC while maintaining low-latency wireless communication, sensor acquisition, and motor control via **ESP-NOW**:
+Instead of running ML inference directly on the ESP32, the car offloads the heavy lifting to a host PC and uses **ESP-NOW** for low-latency wireless telemetry and motor commands:
 
 ```
 [Xbox Controller] (Teleoperation / Safety Override)
@@ -22,40 +26,40 @@ The vehicle delegates compute-heavy machine learning inference to a host PC whil
        ▼ │
 [ESP32 LOLIN32 Car Receiver] ──> [TB6612FNG Driver] ──> [DC Gear Motors]
        ▲
-       └── [3× VL53L0X ToF LiDAR Sensors] (Left, Center, Right)
+       └── [3x VL53L0X ToF LiDAR Sensors] (Left, Center, Right)
 ```
 
-1. **Car Node (WEMOS LOLIN32 v1):** Reads 3× forward-facing VL53L0X Time-of-Flight distance sensors over I2C, transmits telemetry packets via ESP-NOW, and generates hardware PWM motor signals via a TB6612FNG dual H-bridge.
-2. **Transmitter Dongle (ESP32 WROOM DevKit v1):** Plugs into the PC via USB. Acts as a bi-directional wireless bridge, forwarding serial driving commands to the car and streaming sensor telemetry back to Python.
-3. **Data Acquisition (`manual_control.py`):** Captures synchronized time-series rows of distance sensor telemetry `[dist_left_mm, dist_center_mm, dist_right_mm]` mapped to driving directions (`FORWARD`, `FORWARD_LEFT`, `FORWARD_RIGHT`) when holding `[A]` on the Xbox controller.
-4. **Model Training (`train.py`):** Trains a Random Forest classifier using `scikit-learn` on sensor distances and exports the production model artifact to `pilot_model.pkl`.
-5. **Autonomous Inference (`autopilot.py`):** Evaluates live incoming sensor telemetry against the trained model in real time (~30 Hz), streaming predicted steering and throttle actuation back to the vehicle with collision braking and manual safety overrides.
+1. **Car Node (WEMOS LOLIN32 v1):** Reads three forward-facing VL53L0X Time-of-Flight distance sensors over I2C, sends telemetry packets over ESP-NOW, and drives the motors through a TB6612FNG dual H-bridge.
+2. **Transmitter Dongle (ESP32 WROOM DevKit v1):** Plugs into your PC over USB and acts as a two-way wireless bridge—forwarding driving commands to the car and streaming sensor telemetry back to Python.
+3. **Data Collection (`manual_control.py`):** Logs synchronized distance readings `[dist_left_mm, dist_center_mm, dist_right_mm]` alongside your driving labels (`FORWARD`, `FORWARD_LEFT`, `FORWARD_RIGHT`) whenever you hold `[A]` on the Xbox controller.
+4. **Model Training (`train.py`):** Trains a `scikit-learn` Random Forest classifier on those distance readings and saves the trained model to `pilot_model.pkl`.
+5. **Autopilot (`autopilot.py`):** Runs live telemetry through the trained model at ~30 Hz and sends steering and throttle commands back to the car, with built-in collision braking and manual overrides.
 
 ---
 
-## Hardware Bill of Materials
+## Parts List
 
 * **Microcontrollers:**
   * **Car Receiver:** WEMOS LOLIN32 v1 (ESP32-WROOM-32)
   * **Transmitter Dongle:** ESP32 WROOM DevKit v1
 * **Motor Driver:** TB6612FNG Dual H-Bridge Driver
-* **Sensors:** 3× VL53L0X Time-of-Flight (ToF) Laser Distance Sensors
+* **Sensors:** 3x VL53L0X Time-of-Flight (ToF) Laser Distance Sensors
   * **Left:** ~35°–45° angled outward
-  * **Center:** 0° facing forward
+  * **Center:** 0° facing straight ahead
   * **Right:** ~35°–45° angled outward
 * **Chassis & Motors:** 2WD / 4WD robot chassis with DC gear motors
-* **Power Supplies:**
-  * **Motors:** Independent battery pack (e.g., 2S LiPo / 7.4V) connected to TB6612FNG `VM`
-  * **Car Logic:** 5V power bank or 3.7V LiPo connected to LOLIN32
-* **Host PC Controller:** Xbox Wireless / Wired Controller (USB or Bluetooth)
+* **Power:**
+  * **Motors:** Dedicated battery pack (e.g., 2S LiPo / 7.4V) wired to TB6612FNG `VM`
+  * **Car Logic:** 5V power bank or 3.7V LiPo connected to the LOLIN32
+* **Controller:** Xbox Wireless / Wired Controller (USB or Bluetooth)
 
 ---
 
-## Hardware Pinout Configuration
+## Wiring & Pinout
 
-> **Visual Schematic:** See the complete scalable wiring diagram at [docs/wiring_diagram.svg](docs/wiring_diagram.svg).
+![Wiring diagram](https://github.com/imivi/esp32-ml-driving-car/raw/main/docs/wiring_diagram.svg)
 
-### 1. TB6612FNG Motor Driver $\rightarrow$ LOLIN32 v1
+### 1. TB6612FNG Motor Driver -> ESP32 LOLIN32 v1
 
 | TB6612FNG Pin | LOLIN32 v1 Pin | Power / Motor | Description |
 | :--- | :--- | :--- | :--- |
@@ -72,9 +76,9 @@ The vehicle delegates compute-heavy machine learning inference to a host PC whil
 
 ---
 
-### 2. 3× VL53L0X ToF Distance Sensors $\rightarrow$ LOLIN32 v1
+### 2. 3x VL53L0X ToF Distance Sensors -> LOLIN32 v1
 
-All three sensors share the hardware I2C bus (`SDA` / `SCL`). During boot, the LOLIN32 uses their individual `XSHUT` pins to dynamically assign unique I2C addresses:
+All three sensors share the same I2C bus (`SDA` / `SCL`). On boot, the LOLIN32 toggles each sensor's `XSHUT` pin to assign them unique I2C addresses:
 
 | Sensor | I2C Address | LOLIN32 `XSHUT` Pin | Shared I2C Pins |
 | :--- | :--- | :--- | :--- |
@@ -84,11 +88,11 @@ All three sensors share the hardware I2C bus (`SDA` / `SCL`). During boot, the L
 
 ---
 
-## Software Pipeline & Workflow
+## Running the Pipeline
 
-### 1. Data Collection (Teleoperation)
+### 1. Collect Driving Data
 
-Plug the transmitter dongle into your PC and connect your Xbox controller:
+Plug the transmitter dongle into your PC, connect your Xbox controller, and start driving:
 
 ```bash
 uv run manual_control.py
@@ -98,47 +102,47 @@ uv run manual_control.py
   * **Left Stick X:** Steering (`-1.0` full left to `+1.0` full right)
   * **Left Stick Y / Triggers:** Throttle (`RT` forward, `LT` reverse)
   * **`B` Button:** Emergency Brake / Instant Stop
-  * **Hold `[A]` Button:** Continuously record distance telemetry & direction labels at 20 Hz
-* **Output File:** `track_data.csv` (`timestamp_iso`, `timestamp_epoch`, `dist_left_mm`, `dist_center_mm`, `dist_right_mm`, `steer`, `throttle`, `direction`).
+  * **Hold `[A]` Button:** Record distance telemetry and direction labels at 20 Hz
+* **Output:** `track_data.csv` (`timestamp_iso`, `timestamp_epoch`, `dist_left_mm`, `dist_center_mm`, `dist_right_mm`, `steer`, `throttle`, `direction`).
 
 ---
 
-### 2. Machine Learning Training
+### 2. Train the Model
 
-Train an ensemble Random Forest classifier on the 3 distance sensor inputs (`dist_left_mm`, `dist_center_mm`, `dist_right_mm`):
+Train the Random Forest classifier on the three distance sensor readings (`dist_left_mm`, `dist_center_mm`, `dist_right_mm`):
 
 ```bash
 uv run python train.py
 ```
 
-* **Features:** Pure distance sensor inputs (timestamps, steer, and throttle are excluded from training features).
+* **Features:** Distance sensor readings only (timestamps, steer, and throttle are left out).
 * **Target Classes:** `FORWARD`, `FORWARD_LEFT`, `FORWARD_RIGHT`
-* **Validation:** 5-fold stratified cross-validation and held-out test evaluation (~82–85% test accuracy).
-* **Model Artifact:** Exported to **`pilot_model.pkl`**.
+* **Validation:** 5-fold stratified cross-validation plus a held-out test split (~82–85% test accuracy).
+* **Output:** Saves the model artifact to **`pilot_model.pkl`**.
 
 ---
 
-### 3. Autonomous Driving (Inference)
+### 3. Autonomous Driving
 
-Deploy the trained model to drive the vehicle autonomously around the track:
+Let the trained model take the wheel:
 
 ```bash
 uv run python autopilot.py
 ```
 
-* **Real-Time Evaluation:** Evaluates live sensor telemetry at 30 Hz against `pilot_model.pkl` to select optimal driving direction.
+* **Live Inference:** Evaluates incoming sensor telemetry at 30 Hz using `pilot_model.pkl` to pick the next driving action.
 * **Actuation Mapping:**
   * `FORWARD`: Straight cruise (`steer: 0.00`, `throttle: 0.85`)
   * `FORWARD_LEFT`: Arcing left turn (`steer: -0.55`, `throttle: 0.77`)
   * `FORWARD_RIGHT`: Arcing right turn (`steer: +0.55`, `throttle: 0.77`)
 * **Safety Overrides:**
-  * **Emergency Obstacle Braking:** If `dist_center_mm < 140 mm`, immediately halts motors to prevent wall crashes.
-  * **Dead-Man Switch:** Pressing **`B`** on the Xbox controller instantly engages emergency brake.
-  * **Manual Joystick Takeover:** Moving the left stick instantly overrides the autonomous policy.
-  * **Stale Telemetry Failsafe:** Stops vehicle if telemetry stream pauses for > 1.0 s.
+  * **Emergency Obstacle Braking:** If `dist_center_mm < 140 mm`, the motors cut immediately to avoid hitting a wall.
+  * **Dead-Man Switch:** Pressing **`B`** on the Xbox controller triggers an instant emergency brake.
+  * **Manual Takeover:** Moving the left stick immediately overrides the autopilot.
+  * **Stale Telemetry Failsafe:** Stops the car if telemetry drops out for more than 1.0 s.
 
 #### Offline Simulation Mode
-Verify model predictions against recorded track data without connecting to the car:
+You can also test model predictions against recorded track data without connecting the car:
 
 ```bash
 uv run python autopilot.py --simulate
@@ -148,23 +152,17 @@ uv run python autopilot.py --simulate
 
 ## Flashing Firmware with PlatformIO
 
-This project defines two separate firmware environments in [`platformio.ini`](platformio.ini):
+There are two firmware environments defined in [`platformio.ini`](platformio.ini):
 
 ### 1. Transmitter Dongle (`wroom_transmitter`)
-Connected to the PC via USB, receives serial commands from Python and broadcasts via ESP-NOW:
+Plugs into your PC over USB, reads serial commands from Python, and broadcasts them over ESP-NOW:
 
 ```bash
 pio run -e wroom_transmitter -t upload -t monitor
 ```
 
-> **Troubleshooting: "Connecting........_____....."**
-> If upload hangs while connecting:
-> 1. Run the upload command.
-> 2. When `Connecting........` appears, press and **HOLD the `BOOT` button** on the ESP32 board.
-> 3. Release once writing begins.
-
 ### 2. Car Receiver (`lolin32_car`)
-Mounted on the chassis, interfaces with TB6612FNG and 3× VL53L0X ToF sensors:
+Rides on the chassis and talks to the TB6612FNG driver and the three VL53L0X ToF sensors:
 
 ```bash
 pio run -e lolin32_car -t upload -t monitor
